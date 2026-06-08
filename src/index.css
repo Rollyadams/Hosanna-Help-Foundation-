@@ -1,0 +1,24 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,600;1,9..144,400&family=DM+Sans:wght@300;400;500;600&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body { @apply bg-gray-50 text-gray-900 font-sans; }
+}
+
+@layer components {
+  .btn-primary   { @apply bg-hhf-blue text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-hhf-blue-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed; }
+  .btn-outline   { @apply border-2 border-hhf-blue text-hhf-blue px-4 py-2 rounded-lg font-semibold text-sm hover:bg-hhf-blue-pale transition-colors; }
+  .btn-ghost     { @apply border border-gray-200 text-gray-600 px-4 py-2 rounded-lg font-semibold text-sm hover:border-hhf-blue hover:text-hhf-blue transition-colors; }
+  .btn-danger    { @apply bg-hhf-red text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-red-700 transition-colors; }
+  .input-field   { @apply w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-hhf-blue transition-colors; }
+  .card          { @apply bg-white border border-gray-100 rounded-xl p-5 shadow-sm; }
+  .badge-pending   { @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-600; }
+  .badge-confirmed { @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-hhf-blue-pale text-hhf-blue; }
+  .badge-active    { @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-hhf-green-pale text-hhf-green; }
+  .badge-cancelled { @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-hhf-red; }
+  .badge-admin     { @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-900 text-white; }
+  .badge-staff     { @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700; }
+  .badge-client    { @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-hhf-blue-pale text-hhf-blue; }
+}
