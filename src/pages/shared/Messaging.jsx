@@ -84,6 +84,9 @@ export default function Messaging() {
   const [search, setSearch]               = useState('')
   const [showInfo, setShowInfo]           = useState(false)
   const [loadingConvos, setLoadingConvos] = useState(true)
+  const [showNewConvo, setShowNewConvo]   = useState(false)
+  const [users, setUsers]                 = useState([])
+  const [userSearch, setUserSearch]       = useState('')
   const [loadingMsgs, setLoadingMsgs]     = useState(false)
 
   const bottomRef  = useRef(null)
@@ -138,6 +141,20 @@ export default function Messaging() {
       }
     }
     setLoadingConvos(false)
+  }
+
+  // ── Load users for new conversation ─────────────────────
+  async function loadUsers() {
+    let query = supabase.from('hhf_profiles').select('id, full_name, role, online_status').eq('status', 'active').neq('id', profile.id)
+    if (!isAdmin) {
+      // Staff: only load their assigned clients
+      const { data: assignments } = await supabase.from('hhf_staff_assignments').select('client_id').eq('staff_id', profile.id)
+      const ids = assignments?.map(a => a.client_id) || []
+      if (ids.length === 0) { setUsers([]); return }
+      query = query.in('id', ids)
+    }
+    const { data } = await query.order('full_name')
+    setUsers(data || [])
   }
 
   // ── Open conversation ────────────────────────────────────
@@ -324,7 +341,18 @@ export default function Messaging() {
         <div className={`w-full md:w-72 flex-shrink-0 border-r border-gray-100 flex flex-col ${activeConvo ? 'hidden md:flex' : 'flex'}`}>
           {/* Header */}
           <div className="p-4 border-b border-gray-100">
-            <h2 className="font-semibold text-gray-900 mb-3">Messages</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold text-gray-900">Messages</h2>
+              <button
+                onClick={() => { setShowNewConvo(true); loadUsers() }}
+                className="w-7 h-7 bg-hhf-blue text-white rounded-lg flex items-center justify-center hover:bg-hhf-blue-light transition-colors"
+                title="New conversation"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+              </button>
+            </div>
             <div className="relative">
               <svg className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                 <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -605,6 +633,51 @@ export default function Messaging() {
           </div>
         )}
       </div>
+
+        {/* ── NEW CONVERSATION MODAL ── */}
+        {showNewConvo && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl">
+              <div className="flex items-center justify-between p-4 border-b border-gray-100">
+                <h3 className="font-semibold text-gray-900">New Conversation</h3>
+                <button onClick={() => { setShowNewConvo(false); setUserSearch('') }} className="text-gray-400 hover:text-gray-600">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              </div>
+              <div className="p-4">
+                <input
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-hhf-blue mb-3"
+                  placeholder="Search by name..."
+                  value={userSearch}
+                  onChange={e => setUserSearch(e.target.value)}
+                  autoFocus
+                />
+                <div className="max-h-64 overflow-y-auto space-y-1">
+                  {users.filter(u => u.full_name.toLowerCase().includes(userSearch.toLowerCase())).length === 0 ? (
+                    <p className="text-sm text-gray-400 text-center py-6">No users found</p>
+                  ) : users.filter(u => u.full_name.toLowerCase().includes(userSearch.toLowerCase())).map(u => (
+                    <button
+                      key={u.id}
+                      onClick={() => { startConversation(u.id); setShowNewConvo(false); setUserSearch('') }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-hhf-blue-pale transition-colors text-left"
+                    >
+                      <Avatar name={u.full_name} id={u.id} size="sm" online={u.online_status === 'online'} />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm text-gray-900 truncate">{u.full_name}</div>
+                        <div className="text-xs text-gray-400 capitalize">{u.role}</div>
+                      </div>
+                      <svg className="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <polyline points="9 18 15 12 9 6"/>
+                      </svg>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
     </AppShell>
   )
 }
