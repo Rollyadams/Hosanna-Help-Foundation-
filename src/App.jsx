@@ -12,6 +12,7 @@ import AdminDashboard   from './pages/admin/Dashboard'
 import StaffDashboard   from './pages/staff/Dashboard'
 import ClientDashboard  from './pages/client/Dashboard'
 import ComingSoon       from './pages/shared/ComingSoon'
+import Messaging        from './pages/shared/Messaging'
 
 export default function App() {
   return (
@@ -30,7 +31,7 @@ export default function App() {
             <Route path="/admin"                  element={<AdminDashboard />} />
             <Route path="/admin/users"            element={<ComingSoon title="User Management" />} />
             <Route path="/admin/appointments"     element={<ComingSoon title="Appointments" />} />
-            <Route path="/admin/messages"         element={<ComingSoon title="Messages" />} />
+            <Route path="/admin/messages"         element={<Messaging />} />
             <Route path="/admin/documents"        element={<ComingSoon title="Documents" />} />
             <Route path="/admin/reports"          element={<ComingSoon title="Reports" />} />
             <Route path="/admin/audit"            element={<ComingSoon title="Audit Log" />} />
@@ -44,7 +45,7 @@ export default function App() {
             <Route path="/staff"                  element={<StaffDashboard />} />
             <Route path="/staff/clients"          element={<ComingSoon title="My Clients" />} />
             <Route path="/staff/appointments"     element={<ComingSoon title="Appointments" />} />
-            <Route path="/staff/messages"         element={<ComingSoon title="Messages" />} />
+            <Route path="/staff/messages"         element={<Messaging />} />
             <Route path="/staff/documents"        element={<ComingSoon title="Documents" />} />
             <Route path="/staff/availability"     element={<ComingSoon title="Availability" />} />
             <Route path="/staff/notifications"    element={<ComingSoon title="Notifications" />} />
@@ -56,7 +57,7 @@ export default function App() {
             <Route path="/client"                     element={<ClientDashboard />} />
             <Route path="/client/appointments"        element={<ComingSoon title="My Appointments" />} />
             <Route path="/client/appointments/new"    element={<ComingSoon title="Book Appointment" />} />
-            <Route path="/client/messages"            element={<ComingSoon title="Messages" />} />
+            <Route path="/client/messages"            element={<Messaging />} />
             <Route path="/client/documents"           element={<ComingSoon title="My Documents" />} />
             <Route path="/client/notifications"       element={<ComingSoon title="Notifications" />} />
             <Route path="/client/profile"             element={<ComingSoon title="My Profile" />} />
