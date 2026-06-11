@@ -13,6 +13,7 @@ import StaffDashboard   from './pages/staff/Dashboard'
 import ClientDashboard  from './pages/client/Dashboard'
 import ComingSoon       from './pages/shared/ComingSoon'
 import Messaging        from './pages/shared/Messaging'
+import PublicChat       from './pages/public/PublicChat'
 
 export default function App() {
   return (
@@ -62,6 +63,9 @@ export default function App() {
             <Route path="/client/notifications"       element={<ComingSoon title="Notifications" />} />
             <Route path="/client/profile"             element={<ComingSoon title="My Profile" />} />
           </Route>
+
+          {/* Public chat — no auth required */}
+          <Route path="/chat" element={<PublicChat />} />
 
           {/* Default */}
           <Route path="/" element={<Navigate to="/login" replace />} />
