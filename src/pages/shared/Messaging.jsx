@@ -111,13 +111,10 @@ export default function Messaging() {
     if (!profile) return
     setLoadingConvos(true)
 
+    // Step 1: Get raw conversations
     let query = supabase
       .from('hhf_conversations')
-      .select(`
-        id, last_message_at, last_message_preview,
-        participant_a:participant_a(id, full_name, role, online_status),
-        participant_b:participant_b(id, full_name, role, online_status)
-      `)
+      .select('id, last_message_at, last_message_preview, participant_a, participant_b')
       .order('last_message_at', { ascending: false, nullsFirst: false })
 
     if (!isAdmin) {
@@ -126,11 +123,33 @@ export default function Messaging() {
 
     const { data, error } = await query
     if (!error && data) {
-      const enriched = data.map(c => ({
-        ...c,
-        other: c.participant_a?.id === profile.id ? c.participant_b : c.participant_a,
-        isAdmin: isAdmin && c.participant_a?.id !== profile.id && c.participant_b?.id !== profile.id
-      }))
+      // Step 2: Collect all unique participant IDs
+      const allIds = [...new Set(data.flatMap(c => [c.participant_a, c.participant_b]))]
+
+      // Step 3: Fetch registered profiles
+      const { data: profiles } = await supabase
+        .from('hhf_profiles')
+        .select('id, full_name, role, online_status')
+        .in('id', allIds)
+
+      // Step 4: Fetch guest profiles
+      const { data: guests } = await supabase
+        .from('hhf_guest_profiles')
+        .select('id, full_name, email')
+        .in('id', allIds)
+
+      // Step 5: Build lookup map
+      const profileMap = {}
+      ;(profiles || []).forEach(p => { profileMap[p.id] = { ...p } })
+      ;(guests || []).forEach(g => { profileMap[g.id] = { ...g, role: 'visitor', online_status: 'offline' } })
+
+      // Step 6: Enrich conversations
+      const enriched = data.map(c => {
+        const pA = profileMap[c.participant_a] || { id: c.participant_a, full_name: 'Unknown', role: 'visitor' }
+        const pB = profileMap[c.participant_b] || { id: c.participant_b, full_name: 'Unknown', role: 'visitor' }
+        const other = pA.id === profile.id ? pB : pA
+        return { ...c, participant_a: pA, participant_b: pB, other }
+      })
       setConversations(enriched)
 
       // Auto-open from query param
