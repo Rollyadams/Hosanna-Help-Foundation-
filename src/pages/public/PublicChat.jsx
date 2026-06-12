@@ -196,6 +196,10 @@ function ChatWindow({ visitor, convoId }) {
         <div className="text-right flex-shrink-0">
           <div className="text-xs text-white/70">Chatting as</div>
           <div className="text-xs font-semibold text-white truncate max-w-24">{visitor.full_name}</div>
+          <button
+            onClick={() => { localStorage.removeItem('hhf_visitor'); window.location.href = '/chat?new=1' }}
+            className="text-xs text-white/50 hover:text-white/80 underline mt-0.5 block"
+          >Not you?</button>
         </div>
       </div>
 
@@ -278,6 +282,11 @@ export default function PublicChat() {
 
   // Check for returning visitor in localStorage
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('new') === '1') {
+      localStorage.removeItem('hhf_visitor')
+      return
+    }
     const saved = localStorage.getItem('hhf_visitor')
     if (saved) {
       try {
@@ -320,16 +329,28 @@ export default function PublicChat() {
         await supabase.from('hhf_guest_profiles').update({ phone: form.phone }).eq('id', existing.id)
       }
 
-      // 3. Find an available staff/admin to assign conversation to
-      const { data: staff } = await supabase
+      // 3. Find an available staff/admin — prefer online, fall back to any active
+      const { data: onlineStaff } = await supabase
         .from('hhf_profiles')
         .select('id')
         .in('role', ['admin', 'staff'])
         .eq('status', 'active')
-        .order('online_status') // online first
+        .eq('online_status', 'online')
         .limit(1)
 
-      const staffId = staff?.[0]?.id
+      let staffId = onlineStaff?.[0]?.id
+
+      if (!staffId) {
+        // Fall back to any active staff/admin regardless of online status
+        const { data: anyStaff } = await supabase
+          .from('hhf_profiles')
+          .select('id')
+          .in('role', ['admin', 'staff'])
+          .eq('status', 'active')
+          .limit(1)
+        staffId = anyStaff?.[0]?.id
+      }
+
       if (!staffId) throw new Error('No staff available. Please try again later.')
 
       // 4. Create or find conversation
