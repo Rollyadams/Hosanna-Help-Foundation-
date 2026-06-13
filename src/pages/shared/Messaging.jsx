@@ -233,14 +233,19 @@ export default function Messaging() {
 
   // ── Mark messages read ───────────────────────────────────
   async function markRead(convoId) {
-    await supabase
+    // Get unread message IDs first
+    const { data: unread } = await supabase
       .from('hhf_messages')
-      .update({ status: 'read', read_at: new Date().toISOString() })
+      .select('id')
       .eq('conversation_id', convoId)
       .neq('sender_id', profile.id)
       .neq('status', 'read')
-    // Refresh messages to update read status display
-    await loadMessages(convoId)
+
+    if (unread && unread.length > 0) {
+      const ids = unread.map(m => m.id)
+      await supabase.rpc('hhf_mark_messages_read', { message_ids: ids })
+      await loadMessages(convoId)
+    }
   }
 
   // ── Send message ─────────────────────────────────────────
