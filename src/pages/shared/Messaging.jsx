@@ -153,7 +153,8 @@ export default function Messaging() {
       setConversations(enriched)
 
       // Auto-restore from URL on refresh
-      const cid = searchParams.get('convo')
+      const params = new URLSearchParams(window.location.search)
+      const cid = params.get('convo')
       if (cid) {
         const found = enriched.find(c => c.id === cid)
         if (found && (!activeConvo || activeConvo.id !== cid)) openConversation(found)
@@ -182,7 +183,7 @@ export default function Messaging() {
     setOtherUser(convo.other)
     setShowInfo(false)
     setLoadingMsgs(true)
-    setSearchParams({ convo: convo.id })
+    window.history.replaceState(null, '', `?convo=${convo.id}`)
     await loadMessages(convo.id)
     markRead(convo.id)
   }
@@ -191,15 +192,21 @@ export default function Messaging() {
   async function loadMessages(convoId) {
     const { data, error } = await supabase
       .from('hhf_messages')
-      .select(`
-        id, body, status, read_at, is_away_reply, created_at, sender_id,
-        sender:sender_id(id, full_name, role),
-        attachments:hhf_message_attachments(id, file_name, storage_path, mime_type, file_size, type)
-      `)
+      .select('id, body, status, read_at, is_away_reply, created_at, sender_id, attachments:hhf_message_attachments(id, file_name, storage_path, mime_type, file_size, type)')
       .eq('conversation_id', convoId)
       .order('created_at', { ascending: true })
 
-    if (!error && data) setMessages(data)
+    if (!error && data) {
+      // Fetch sender names from both tables
+      const senderIds = [...new Set(data.map(m => m.sender_id).filter(Boolean))]
+      const { data: regSenders } = await supabase.from('hhf_profiles').select('id, full_name, role').in('id', senderIds)
+      const { data: guestSenders } = await supabase.from('hhf_guest_profiles').select('id, full_name').in('id', senderIds)
+      const senderMap = {}
+      ;(regSenders || []).forEach(s => { senderMap[s.id] = s })
+      ;(guestSenders || []).forEach(s => { senderMap[s.id] = { ...s, role: 'visitor' } })
+      const enriched = data.map(m => ({ ...m, sender: senderMap[m.sender_id] || null }))
+      setMessages(enriched)
+    }
     setLoadingMsgs(false)
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
   }
