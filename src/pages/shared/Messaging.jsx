@@ -239,6 +239,8 @@ export default function Messaging() {
       .eq('conversation_id', convoId)
       .neq('sender_id', profile.id)
       .neq('status', 'read')
+    // Refresh messages to update read status display
+    await loadMessages(convoId)
   }
 
   // ── Send message ─────────────────────────────────────────
@@ -544,8 +546,25 @@ export default function Messaging() {
                           {new Date(msg.created_at).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })}
                         </span>
                         {mine && (
-                          <span className={`text-xs ${msg.status === 'read' ? 'text-hhf-blue' : 'text-gray-300'}`}>
-                            {msg.status === 'read' ? '✓✓' : msg.status === 'delivered' ? '✓✓' : '✓'}
+                          <span className={`text-xs flex items-center gap-0.5 ${msg.status === 'read' ? 'text-hhf-blue' : 'text-gray-400'}`}>
+                            {msg.status === 'read' ? (
+                              // Double tick blue — read
+                              <svg width="16" height="10" viewBox="0 0 16 10" fill="none">
+                                <path d="M1 5l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M6 5l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            ) : msg.status === 'delivered' ? (
+                              // Double tick grey — delivered not read
+                              <svg width="16" height="10" viewBox="0 0 16 10" fill="none">
+                                <path d="M1 5l3 3 5-6" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M6 5l3 3 5-6" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            ) : (
+                              // Single tick — sent
+                              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                <path d="M1 5l3 3 5-6" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            )}
                           </span>
                         )}
                       </div>
