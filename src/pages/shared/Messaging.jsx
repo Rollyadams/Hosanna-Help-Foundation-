@@ -184,8 +184,9 @@ export default function Messaging() {
     setShowInfo(false)
     setLoadingMsgs(true)
     window.history.replaceState(null, '', `?convo=${convo.id}`)
+    // Mark read FIRST so messages load already showing double ticks
+    await markRead(convo.id)
     await loadMessages(convo.id)
-    markRead(convo.id)
   }
 
   // ── Load messages ────────────────────────────────────────
@@ -242,11 +243,12 @@ export default function Messaging() {
 
     if (unread && unread.length > 0) {
       const ids = unread.map(m => m.id)
-      await supabase.rpc('hhf_mark_messages_read', { message_ids: ids })
-      // Update in-place immediately without full reload
+      // Update UI immediately — don't wait for RPC or Realtime
       setMessages(prev => prev.map(m =>
         ids.includes(m.id) ? { ...m, status: 'read', read_at: new Date().toISOString() } : m
       ))
+      // Fire RPC in background
+      supabase.rpc('hhf_mark_messages_read', { message_ids: ids })
     }
   }
 
