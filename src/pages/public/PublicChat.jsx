@@ -129,14 +129,27 @@ function ChatWindow({ visitor, convoId }) {
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'hhf_messages',
         filter: `conversation_id=eq.${convoId}`
-      }, payload => {
+      }, async payload => {
+        // Enrich sender
+        let sender = null
+        const { data: s } = await supabase.from('hhf_profiles').select('id, full_name, role').eq('id', payload.new.sender_id).single()
+        if (s) sender = s
         setMessages(prev => {
           if (prev.find(m => m.id === payload.new.id)) return prev
-          // payload.new has no sender join — mark it appropriately
-          const newMsg = { ...payload.new, sender: null }
-          return [...prev, newMsg]
+          return [...prev, { ...payload.new, sender }]
         })
         setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+        if (payload.new.sender_id !== visitor.id) {
+          supabase.rpc('hhf_mark_messages_read', { message_ids: [payload.new.id] })
+        }
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'hhf_messages',
+        filter: `conversation_id=eq.${convoId}`
+      }, payload => {
+        setMessages(prev => prev.map(m =>
+          m.id === payload.new.id ? { ...m, status: payload.new.status, read_at: payload.new.read_at } : m
+        ))
       })
       .subscribe()
 
