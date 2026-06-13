@@ -72,7 +72,7 @@ function FileIcon({ mime }) {
 // ─── MAIN COMPONENT ───────────────────────────────────────
 export default function Messaging() {
   const { profile, isAdmin } = useAuth()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [conversations, setConversations] = useState([])
   const [activeConvo, setActiveConvo]     = useState(null)
@@ -152,11 +152,11 @@ export default function Messaging() {
       })
       setConversations(enriched)
 
-      // Auto-open from query param
+      // Auto-restore from URL on refresh
       const cid = searchParams.get('convo')
-      if (cid && !activeConvo) {
+      if (cid) {
         const found = enriched.find(c => c.id === cid)
-        if (found) openConversation(found)
+        if (found && (!activeConvo || activeConvo.id !== cid)) openConversation(found)
       }
     }
     setLoadingConvos(false)
@@ -182,6 +182,7 @@ export default function Messaging() {
     setOtherUser(convo.other)
     setShowInfo(false)
     setLoadingMsgs(true)
+    setSearchParams({ convo: convo.id })
     await loadMessages(convo.id)
     markRead(convo.id)
   }
