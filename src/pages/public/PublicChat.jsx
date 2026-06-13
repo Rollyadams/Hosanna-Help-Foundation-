@@ -18,7 +18,7 @@ function VisitorForm({ onStart, onReturn }) {
   const [errors, setErrors]   = useState({})
   const [returnError, setReturnError] = useState('')
 
-  function update(e) { setForm(f => ({ ...f, [e.target.name]: e.target.value })) }
+  function update(e) { setForm(f => ({ ...f, [e.target.name]: e.target.value })); setErrors(prev => ({ ...prev, [e.target.name]: undefined })) }
   function updateReturn(e) { setReturnForm(f => ({ ...f, [e.target.name]: e.target.value })) }
 
   function validate() {
