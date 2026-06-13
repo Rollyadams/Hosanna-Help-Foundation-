@@ -150,14 +150,21 @@ function ChatWindow({ visitor, convoId }) {
       .eq('conversation_id', convoId)
       .order('created_at')
     if (data) {
-      // Enrich with sender names from both tables
       const ids = [...new Set(data.map(m => m.sender_id).filter(Boolean))]
       const { data: reg }   = await supabase.from('hhf_profiles').select('id, full_name, role').in('id', ids)
       const { data: guest } = await supabase.from('hhf_guest_profiles').select('id, full_name').in('id', ids)
       const sMap = {}
       ;(reg   || []).forEach(s => { sMap[s.id] = s })
       ;(guest || []).forEach(s => { sMap[s.id] = { ...s, role: 'visitor' } })
-      setMessages(data.map(m => ({ ...m, sender: sMap[m.sender_id] || null })))
+      const enriched = data.map(m => ({ ...m, sender: sMap[m.sender_id] || null }))
+      setMessages(enriched)
+      // Mark staff messages as read
+      const unread = data.filter(m => m.sender_id !== visitor.id && m.status !== 'read').map(m => m.id)
+      if (unread.length > 0) {
+        await supabase.from('hhf_messages')
+          .update({ status: 'read', read_at: new Date().toISOString() })
+          .in('id', unread)
+      }
     }
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
   }
