@@ -132,7 +132,9 @@ function ChatWindow({ visitor, convoId }) {
       }, payload => {
         setMessages(prev => {
           if (prev.find(m => m.id === payload.new.id)) return prev
-          return [...prev, payload.new]
+          // payload.new has no sender join — mark it appropriately
+          const newMsg = { ...payload.new, sender: null }
+          return [...prev, newMsg]
         })
         setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
       })
@@ -144,10 +146,19 @@ function ChatWindow({ visitor, convoId }) {
   async function loadMessages() {
     const { data } = await supabase
       .from('hhf_messages')
-      .select('id, body, sender_id, is_away_reply, created_at, sender:sender_id(full_name, role)')
+      .select('id, body, sender_id, is_away_reply, created_at')
       .eq('conversation_id', convoId)
       .order('created_at')
-    if (data) setMessages(data)
+    if (data) {
+      // Enrich with sender names from both tables
+      const ids = [...new Set(data.map(m => m.sender_id).filter(Boolean))]
+      const { data: reg }   = await supabase.from('hhf_profiles').select('id, full_name, role').in('id', ids)
+      const { data: guest } = await supabase.from('hhf_guest_profiles').select('id, full_name').in('id', ids)
+      const sMap = {}
+      ;(reg   || []).forEach(s => { sMap[s.id] = s })
+      ;(guest || []).forEach(s => { sMap[s.id] = { ...s, role: 'visitor' } })
+      setMessages(data.map(m => ({ ...m, sender: sMap[m.sender_id] || null })))
+    }
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
   }
 
@@ -197,7 +208,7 @@ function ChatWindow({ visitor, convoId }) {
           <div className="text-xs text-white/70">Chatting as</div>
           <div className="text-xs font-semibold text-white truncate max-w-24">{visitor.full_name}</div>
           <button
-            onClick={() => { localStorage.removeItem('hhf_visitor'); window.location.href = '/chat?new=1' }}
+            onClick={() => { localStorage.removeItem('hhf_visitor_session'); window.location.href = '/chat?new=1' }}
             className="text-xs text-white/50 hover:text-white/80 underline mt-0.5 block"
           >Not you?</button>
         </div>
@@ -284,17 +295,17 @@ export default function PublicChat() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('new') === '1') {
-      localStorage.removeItem('hhf_visitor')
+      localStorage.removeItem('hhf_visitor_session')
       setStep('form')
       return
     }
-    const saved = localStorage.getItem('hhf_visitor')
+    const saved = localStorage.getItem('hhf_visitor_session')
     if (saved) {
       try {
         const { visitor: v, convoId: cid } = JSON.parse(saved)
         setVisitor(v); setConvoId(cid); setStep('chat')
       } catch (_) {
-        localStorage.removeItem('hhf_visitor')
+        localStorage.removeItem('hhf_visitor_session')
         setStep('form')
       }
     } else {
@@ -418,7 +429,11 @@ export default function PublicChat() {
       }
 
       // 8. Save to localStorage for returning visitor
-      localStorage.setItem('hhf_visitor', JSON.stringify({ visitor: visitorProfile, convoId: convo.id }))
+      const sessionData = { 
+        visitor: { id: visitorProfile.id, full_name: visitorProfile.full_name, email: visitorProfile.email },
+        convoId: convo.id 
+      }
+      localStorage.setItem('hhf_visitor_session', JSON.stringify(sessionData))
 
       setVisitor(visitorProfile)
       setConvoId(convo.id)
