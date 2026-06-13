@@ -275,7 +275,7 @@ function ChatWindow({ visitor, convoId }) {
 
 // ── MAIN EXPORT ─────────────────────────────────────────────
 export default function PublicChat() {
-  const [step, setStep]       = useState('form') // form | chat
+  const [step, setStep]       = useState('loading') // loading | form | chat
   const [visitor, setVisitor] = useState(null)
   const [convoId, setConvoId] = useState(null)
   const [error, setError]     = useState('')
@@ -285,6 +285,7 @@ export default function PublicChat() {
     const params = new URLSearchParams(window.location.search)
     if (params.get('new') === '1') {
       localStorage.removeItem('hhf_visitor')
+      setStep('form')
       return
     }
     const saved = localStorage.getItem('hhf_visitor')
@@ -292,7 +293,12 @@ export default function PublicChat() {
       try {
         const { visitor: v, convoId: cid } = JSON.parse(saved)
         setVisitor(v); setConvoId(cid); setStep('chat')
-      } catch (_) { localStorage.removeItem('hhf_visitor') }
+      } catch (_) {
+        localStorage.removeItem('hhf_visitor')
+        setStep('form')
+      }
+    } else {
+      setStep('form')
     }
   }, [])
 
@@ -422,6 +428,13 @@ export default function PublicChat() {
       setError(err.message || 'Something went wrong. Please try again.')
     }
   }
+
+  if (step === 'loading') return (
+    <div className="min-h-screen flex items-center justify-center"
+         style={{ background: 'linear-gradient(135deg, #0d2e5e 0%, #1a5fa8 60%, #1565a0 100%)' }}>
+      <div className="w-10 h-10 border-4 border-white border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
 
   if (step === 'chat' && visitor && convoId) {
     return <ChatWindow visitor={visitor} convoId={convoId} />
