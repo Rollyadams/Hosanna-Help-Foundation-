@@ -228,6 +228,17 @@ export default function Messaging() {
         setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
         markRead(activeConvo.id)
       })
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'hhf_messages',
+        filter: `conversation_id=eq.${activeConvo.id}`
+      }, payload => {
+        // Guest marked our message as read — update tick immediately
+        setMessages(prev => prev.map(m =>
+          m.id === payload.new.id
+            ? { ...m, status: payload.new.status, read_at: payload.new.read_at }
+            : m
+        ))
+      })
       .subscribe()
     return () => supabase.removeChannel(sub)
   }, [activeConvo])
