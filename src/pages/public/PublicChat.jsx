@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import bcrypt from 'bcryptjs'
 import { supabase } from '../../lib/supabase'
 
 const HHF_BLUE  = '#1a5fa8'
@@ -9,20 +10,25 @@ function timeStr(ts) {
 }
 
 // ── STEP 1: VISITOR FORM ────────────────────────────────────
-function VisitorForm({ onStart }) {
-  const [form, setForm]     = useState({ name: '', email: '', phone: '', message: '' })
+function VisitorForm({ onStart, onReturn }) {
+  const [mode, setMode]       = useState('new') // new | return
+  const [form, setForm]       = useState({ name: '', email: '', phone: '', password: '', confirm: '', message: '' })
+  const [returnForm, setReturnForm] = useState({ phone: '', password: '' })
   const [loading, setLoading] = useState(false)
   const [errors, setErrors]   = useState({})
+  const [returnError, setReturnError] = useState('')
 
   function update(e) { setForm(f => ({ ...f, [e.target.name]: e.target.value })) }
+  function updateReturn(e) { setReturnForm(f => ({ ...f, [e.target.name]: e.target.value })) }
 
   function validate() {
     const e = {}
-    if (!form.name.trim())    e.name    = 'Please enter your name'
-    if (!form.email.trim())   e.email   = 'Please enter your email'
-    if (!/\S+@\S+\.\S+/.test(form.email)) e.email = 'Invalid email address'
-    if (!form.phone.trim())   e.phone   = 'Please enter your phone number'
-    if (!form.message.trim()) e.message = 'Please enter a message'
+    if (!form.name.trim())     e.name     = 'Please enter your name'
+    if (!form.phone.trim())    e.phone    = 'Please enter your phone number'
+    if (!form.message.trim())  e.message  = 'Please enter a message'
+    if (!form.password)        e.password = 'Please create a password'
+    if (form.password.length < 6) e.password = 'Password must be at least 6 characters'
+    if (form.password !== form.confirm) e.confirm = 'Passwords do not match'
     return e
   }
 
@@ -32,6 +38,14 @@ function VisitorForm({ onStart }) {
     if (Object.keys(errs).length) { setErrors(errs); return }
     setLoading(true)
     await onStart(form)
+    setLoading(false)
+  }
+
+  async function handleReturn(e) {
+    e.preventDefault()
+    setReturnError('')
+    setLoading(true)
+    await onReturn(returnForm, setReturnError)
     setLoading(false)
   }
 
@@ -50,61 +64,126 @@ function VisitorForm({ onStart }) {
           </div>
           <div className="flex items-center gap-2 mt-4">
             <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-            <span className="text-sm text-white/90">We're here to help. Start a conversation.</span>
+            <span className="text-sm text-white/90">We are here to help. Start a conversation.</span>
           </div>
         </div>
 
-        {/* Form */}
+        {/* Mode tabs */}
+        <div className="flex border-b border-gray-100">
+          <button
+            onClick={() => setMode('new')}
+            className={`flex-1 py-3 text-sm font-semibold transition-colors ${mode === 'new' ? 'text-hhf-blue border-b-2 border-hhf-blue' : 'text-gray-400 hover:text-gray-600'}`}
+          >
+            New Conversation
+          </button>
+          <button
+            onClick={() => setMode('return')}
+            className={`flex-1 py-3 text-sm font-semibold transition-colors ${mode === 'return' ? 'text-hhf-blue border-b-2 border-hhf-blue' : 'text-gray-400 hover:text-gray-600'}`}
+          >
+            Continue Chat
+          </button>
+        </div>
+
         <div className="p-6">
-          <p className="text-sm text-gray-500 mb-5">
-            Fill in your details and we will connect you with our team right away.
-          </p>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Full Name *</label>
-              <input name="name" value={form.name} onChange={update}
-                className={`w-full px-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:border-blue-500 transition-colors ${errors.name ? 'border-red-400' : 'border-gray-200'}`}
-                placeholder="Your full name" />
-              {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Email Address *</label>
-              <input name="email" type="email" value={form.email} onChange={update}
-                className={`w-full px-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:border-blue-500 transition-colors ${errors.email ? 'border-red-400' : 'border-gray-200'}`}
-                placeholder="your@email.com" />
-              {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email}</p>}
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Phone Number *</label>
-              <input name="phone" value={form.phone} onChange={update}
-                className={`w-full px-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:border-blue-500 transition-colors ${errors.phone ? 'border-red-400' : 'border-gray-200'}`}
-                placeholder="+234 800 000 0000" />
-              {errors.phone && <p className="text-xs text-red-500 mt-1">{errors.phone}</p>}
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">How can we help? *</label>
-              <textarea name="message" value={form.message} onChange={update} rows={3}
-                className={`w-full px-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:border-blue-500 transition-colors resize-none ${errors.message ? 'border-red-400' : 'border-gray-200'}`}
-                placeholder="Tell us what is on your mind..." />
-              {errors.message && <p className="text-xs text-red-500 mt-1">{errors.message}</p>}
-            </div>
-            <button type="submit" disabled={loading}
-              className="w-full py-3 text-white font-semibold rounded-xl flex items-center justify-center gap-2 transition-all hover:opacity-90 disabled:opacity-60"
-              style={{ background: 'linear-gradient(135deg, #1a5fa8, #2e7d32)' }}>
-              {loading
-                ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Connecting...</>
-                : <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
-                    </svg>
-                    Start Conversation
-                  </>
-              }
-            </button>
-          </form>
-          <p className="text-center text-xs text-gray-400 mt-4">
-            Your information is kept private and secure.
-          </p>
+          {mode === 'new' ? (
+            <>
+              <p className="text-sm text-gray-500 mb-5">
+                Fill in your details to start a private conversation with our team.
+              </p>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Full Name *</label>
+                  <input name="name" value={form.name} onChange={update}
+                    className={`w-full px-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:border-blue-500 transition-colors ${errors.name ? 'border-red-400' : 'border-gray-200'}`}
+                    placeholder="Your full name" />
+                  {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Phone Number *</label>
+                  <input name="phone" value={form.phone} onChange={update}
+                    className={`w-full px-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:border-blue-500 transition-colors ${errors.phone ? 'border-red-400' : 'border-gray-200'}`}
+                    placeholder="+234 800 000 0000" />
+                  {errors.phone && <p className="text-xs text-red-500 mt-1">{errors.phone}</p>}
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Email Address <span className="text-gray-400 font-normal">(optional)</span></label>
+                  <input name="email" type="email" value={form.email} onChange={update}
+                    className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 transition-colors"
+                    placeholder="your@email.com" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Create Password *</label>
+                  <input name="password" type="password" value={form.password} onChange={update}
+                    className={`w-full px-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:border-blue-500 transition-colors ${errors.password ? 'border-red-400' : 'border-gray-200'}`}
+                    placeholder="Min. 6 characters — to protect your chat" />
+                  {errors.password && <p className="text-xs text-red-500 mt-1">{errors.password}</p>}
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Confirm Password *</label>
+                  <input name="confirm" type="password" value={form.confirm} onChange={update}
+                    className={`w-full px-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:border-blue-500 transition-colors ${errors.confirm ? 'border-red-400' : 'border-gray-200'}`}
+                    placeholder="Repeat your password" />
+                  {errors.confirm && <p className="text-xs text-red-500 mt-1">{errors.confirm}</p>}
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">How can we help? *</label>
+                  <textarea name="message" value={form.message} onChange={update} rows={3}
+                    className={`w-full px-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:border-blue-500 transition-colors resize-none ${errors.message ? 'border-red-400' : 'border-gray-200'}`}
+                    placeholder="Tell us what is on your mind..." />
+                  {errors.message && <p className="text-xs text-red-500 mt-1">{errors.message}</p>}
+                </div>
+                <button type="submit" disabled={loading}
+                  className="w-full py-3 text-white font-semibold rounded-xl flex items-center justify-center gap-2 transition-all hover:opacity-90 disabled:opacity-60"
+                  style={{ background: 'linear-gradient(135deg, #1a5fa8, #2e7d32)' }}>
+                  {loading
+                    ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Connecting...</>
+                    : <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+                        </svg>
+                        Start Conversation
+                      </>
+                  }
+                </button>
+              </form>
+              <p className="text-center text-xs text-gray-400 mt-4">
+                Your information is kept private and secure.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-gray-500 mb-5">
+                Enter your phone number and password to continue your previous conversation.
+              </p>
+              {returnError && (
+                <div className="bg-red-50 border border-red-100 text-red-600 text-sm px-3 py-2 rounded-lg mb-4">
+                  {returnError}
+                </div>
+              )}
+              <form onSubmit={handleReturn} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Phone Number</label>
+                  <input name="phone" value={returnForm.phone} onChange={updateReturn}
+                    className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 transition-colors"
+                    placeholder="+234 800 000 0000" required />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Password</label>
+                  <input name="password" type="password" value={returnForm.password} onChange={updateReturn}
+                    className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 transition-colors"
+                    placeholder="Your chat password" required />
+                </div>
+                <button type="submit" disabled={loading}
+                  className="w-full py-3 text-white font-semibold rounded-xl flex items-center justify-center gap-2 disabled:opacity-60"
+                  style={{ background: '#1a5fa8' }}>
+                  {loading
+                    ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Verifying...</>
+                    : 'Continue My Conversation'
+                  }
+                </button>
+              </form>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -347,38 +426,80 @@ export default function PublicChat() {
     }
   }, [])
 
-  async function handleStart(form) {
-    setError('')
+  async function handleReturn(returnForm, setReturnError) {
     try {
-      // 1. Check if visitor already exists by email
-      const { data: existing } = await supabase
+      const { data: guest } = await supabase
         .from('hhf_guest_profiles')
-        .select('id, full_name, email')
-        .eq('email', form.email)
+        .select('id, full_name, phone, password_hash')
+        .eq('phone', returnForm.phone)
         .eq('app', 'hhf')
         .single()
 
-      let visitorProfile = existing
+      if (!guest) { setReturnError('Phone number not found. Please start a new conversation.'); return }
+      if (!guest.password_hash) { setReturnError('No password set. Please start a new conversation.'); return }
 
-      if (!visitorProfile) {
-        // 2. Create guest profile (no auth account needed)
-        const { data: newProfile, error: profileErr } = await supabase
-          .from('hhf_guest_profiles')
-          .insert({
-            app:       'hhf',
-            email:     form.email,
-            full_name: form.name,
-            phone:     form.phone,
-          })
-          .select()
-          .single()
+      const valid = bcrypt.compareSync(returnForm.password, guest.password_hash)
+      if (!valid) { setReturnError('Incorrect password. Please try again.'); return }
 
-        if (profileErr) throw new Error(profileErr.message)
-        visitorProfile = newProfile
-      } else {
-        // Update phone if changed
-        await supabase.from('hhf_guest_profiles').update({ phone: form.phone }).eq('id', existing.id)
+      // Find their conversation
+      const { data: convo } = await supabase
+        .from('hhf_conversations')
+        .select('id')
+        .or(`participant_a.eq.${guest.id},participant_b.eq.${guest.id}`)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (!convo) { setReturnError('No conversation found for this account.'); return }
+
+      const sessionData = {
+        visitor: { id: guest.id, full_name: guest.full_name, phone: guest.phone },
+        convoId: convo.id
       }
+      localStorage.setItem('hhf_visitor_session', JSON.stringify(sessionData))
+      setVisitor(guest)
+      setConvoId(convo.id)
+      setStep('chat')
+    } catch (err) {
+      setReturnError('Something went wrong. Please try again.')
+    }
+  }
+
+  async function handleStart(form) {
+    setError('')
+    try {
+      // 1. Check if phone already registered
+      const { data: existing } = await supabase
+        .from('hhf_guest_profiles')
+        .select('id, full_name, phone, password_hash')
+        .eq('phone', form.phone)
+        .eq('app', 'hhf')
+        .single()
+
+      if (existing) {
+        setError('This phone number is already registered. Please use "Continue Chat" to log in.')
+        return
+      }
+
+      // 2. Hash password
+      const salt = bcrypt.genSaltSync(10)
+      const password_hash = bcrypt.hashSync(form.password, salt)
+
+      // 3. Create guest profile with hashed password
+      const { data: newProfile, error: profileErr } = await supabase
+        .from('hhf_guest_profiles')
+        .insert({
+          app:           'hhf',
+          email:         form.email || null,
+          full_name:     form.name,
+          phone:         form.phone,
+          password_hash,
+        })
+        .select()
+        .single()
+
+      if (profileErr) throw new Error(profileErr.message)
+      let visitorProfile = newProfile
 
       // 3. Find an available staff/admin — prefer online, fall back to any active
       const { data: onlineStaff } = await supabase
@@ -496,7 +617,7 @@ export default function PublicChat() {
           {error}
         </div>
       )}
-      <VisitorForm onStart={handleStart} />
+      <VisitorForm onStart={handleStart} onReturn={handleReturn} />
     </>
   )
 }
