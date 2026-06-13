@@ -158,12 +158,10 @@ function ChatWindow({ visitor, convoId }) {
       ;(guest || []).forEach(s => { sMap[s.id] = { ...s, role: 'visitor' } })
       const enriched = data.map(m => ({ ...m, sender: sMap[m.sender_id] || null }))
       setMessages(enriched)
-      // Mark staff messages as read
+      // Mark staff messages as read via security definer function
       const unread = data.filter(m => m.sender_id !== visitor.id && m.status !== 'read').map(m => m.id)
       if (unread.length > 0) {
-        await supabase.from('hhf_messages')
-          .update({ status: 'read', read_at: new Date().toISOString() })
-          .in('id', unread)
+        await supabase.rpc('hhf_mark_messages_read', { message_ids: unread })
       }
     }
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
@@ -249,7 +247,23 @@ function ChatWindow({ visitor, convoId }) {
                   {msg.is_away_reply && <div className="text-xs font-semibold mb-1 opacity-60">Auto-reply</div>}
                   {msg.body}
                 </div>
-                <div className="text-xs text-gray-400 px-1">{timeStr(msg.created_at)}</div>
+                <div className="flex items-center gap-1 px-1">
+                  <span className="text-xs text-gray-400">{timeStr(msg.created_at)}</span>
+                  {mine && (
+                    <span className={msg.status === 'read' ? 'text-blue-500' : 'text-gray-300'}>
+                      {msg.status === 'read' ? (
+                        <svg width="16" height="10" viewBox="0 0 16 10" fill="none">
+                          <path d="M1 5l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                          <path d="M6 5l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      ) : (
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                          <path d="M1 5l3 3 5-6" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      )}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           )
