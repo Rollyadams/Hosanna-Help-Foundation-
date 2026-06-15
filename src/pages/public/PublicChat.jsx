@@ -183,7 +183,7 @@ function ChatWindow({ visitor, convoId }) {
   async function loadMessages() {
     const { data } = await supabase
       .from('hhf_messages')
-      .select('id, body, sender_id, is_away_reply, created_at, status, read_at')
+      .select('id, body, sender_id, is_away_reply, created_at, status, read_at, attachments:hhf_message_attachments(id, file_name, storage_path, mime_type, file_size)')
       .eq('conversation_id', convoId)
       .order('created_at')
     if (data) {
@@ -303,14 +303,37 @@ function ChatWindow({ visitor, convoId }) {
                 {!mine && (
                   <div className="text-xs text-gray-400 px-1">HHF Team</div>
                 )}
-                <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed ${
-                  mine ? 'bg-blue-600 text-white rounded-br-sm' :
-                  msg.is_away_reply ? 'bg-amber-50 border border-amber-200 text-amber-900 italic rounded-bl-sm' :
-                  'bg-white text-gray-800 shadow-sm rounded-bl-sm'
-                }`}>
-                  {msg.is_away_reply && <div className="text-xs font-semibold mb-1 opacity-60">Auto-reply</div>}
-                  {msg.body}
-                </div>
+                {(() => {
+                  const att = msg.attachments?.[0]
+                  if (att) {
+                    const { data: urlData } = supabase.storage.from('hhf-documents').getPublicUrl(att.storage_path)
+                    const url = urlData?.publicUrl
+                    if (att.mime_type?.startsWith('image/')) return (
+                      <img src={url} alt={att.file_name}
+                        className="rounded-xl max-w-full max-h-48 object-cover cursor-pointer border border-gray-200"
+                        onClick={() => window.open(url, '_blank')} />
+                    )
+                    return (
+                      <a href={url} target="_blank" rel="noreferrer"
+                        className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium ${mine ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-700'}`}>
+                        <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                        </svg>
+                        <span className="truncate max-w-40">{att.file_name}</span>
+                      </a>
+                    )
+                  }
+                  return (
+                    <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed ${
+                      mine ? 'bg-blue-600 text-white rounded-br-sm' :
+                      msg.is_away_reply ? 'bg-amber-50 border border-amber-200 text-amber-900 italic rounded-bl-sm' :
+                      'bg-white text-gray-800 shadow-sm rounded-bl-sm'
+                    }`}>
+                      {msg.is_away_reply && <div className="text-xs font-semibold mb-1 opacity-60">Auto-reply</div>}
+                      {msg.body}
+                    </div>
+                  )
+                })()}
                 <div className={`flex items-center gap-1 px-1 ${mine ? 'flex-row-reverse' : ''}`}>
                   <span className="text-xs text-gray-400">{timeStr(msg.created_at)}</span>
                   <ReadTick status={msg.status} mine={mine} />
