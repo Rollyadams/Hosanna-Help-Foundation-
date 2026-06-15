@@ -317,9 +317,23 @@ export default function Messaging() {
     }
   }
 
+  const [signedUrls, setSignedUrls] = useState({})
+
+  async function getSignedUrl(path) {
+    if (signedUrls[path]) return signedUrls[path]
+    const { data } = await supabase.storage.from('hhf-documents').createSignedUrl(path, 3600)
+    if (data?.signedUrl) {
+      setSignedUrls(prev => ({ ...prev, [path]: data.signedUrl }))
+      return data.signedUrl
+    }
+    return null
+  }
+
   function getFileUrl(path) {
-    const { data } = supabase.storage.from('hhf-documents').getPublicUrl(path)
-    return data?.publicUrl
+    // Return cached signed URL or trigger fetch
+    if (signedUrls[path]) return signedUrls[path]
+    getSignedUrl(path) // async, will trigger re-render when done
+    return null
   }
 
   function handleKey(e) {
