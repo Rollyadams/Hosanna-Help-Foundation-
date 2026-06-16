@@ -133,34 +133,44 @@ export default function Messaging() {
     }
   }, [profile])
 
-  // ── POLL STATUS EVERY 5s (reliable tick updates) ──────────
+  // ── POLL STATUS EVERY 3s (reliable tick updates) ──────────
+  const pollStatus = useCallback(async (convoId) => {
+    if (!convoId) return
+    const { data } = await supabase
+      .from('hhf_messages')
+      .select('id, status, read_at')
+      .eq('conversation_id', convoId)
+    if (data) {
+      setMessages(prev => prev.map(msg => {
+        const upd = data.find(d => d.id === msg.id)
+        if (!upd) return msg
+        // Only move forward: sent → read
+        if (msg.status !== 'read' && upd.status === 'read') {
+          return { ...msg, status: 'read', read_at: upd.read_at }
+        }
+        return msg
+      }))
+    }
+  }, [])
+
   const startPolling = useCallback((convoId) => {
     stopPolling()
-    pollRef.current = setInterval(async () => {
-      if (!activeConvoRef.current) return
-      // Fetch only status fields — lightweight
-      const { data } = await supabase
-        .from('hhf_messages')
-        .select('id, status, read_at')
-        .eq('conversation_id', convoId)
-        .order('created_at', { ascending: true })
-      if (data) {
-        setMessages(prev => prev.map(msg => {
-          const updated = data.find(d => d.id === msg.id)
-          if (!updated) return msg
-          // Only move status forward: sent → delivered → read
-          const order = { sent: 0, delivered: 1, read: 2 }
-          if (order[updated.status] > order[msg.status || 'sent']) {
-            return { ...msg, status: updated.status, read_at: updated.read_at }
-          }
-          return msg
-        }))
-      }
-    }, 5000)
-  }, [])
+    // Poll every 3 seconds
+    pollRef.current = setInterval(() => pollStatus(convoId), 3000)
+    // Also poll immediately when tab becomes visible again
+    const onFocus = () => pollStatus(convoId)
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('visibilitychange', onFocus)
+    // Store cleanup
+    pollRef.cleanup = () => {
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('visibilitychange', onFocus)
+    }
+  }, [pollStatus])
 
   function stopPolling() {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+    if (pollRef.cleanup) { pollRef.cleanup(); pollRef.cleanup = null }
   }
 
   // ── LOAD CONVERSATIONS ────────────────────────────────────
