@@ -37,22 +37,14 @@ function Avatar({ name, id, size = 'md', online = false }) {
 }
 
 // ── READ TICK ──────────────────────────────────────────────
+// Simple: grey tick = sent, blue tick = seen
 function ReadTick({ status }) {
-  if (status === 'read') return (
-    <svg width="18" height="11" viewBox="0 0 18 11" fill="none" className="inline-block">
-      <path d="M1 5.5L4.5 9L10.5 2" stroke="#1a5fa8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M7 5.5L10.5 9L16.5 2" stroke="#1a5fa8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-  )
-  if (status === 'delivered') return (
-    <svg width="18" height="11" viewBox="0 0 18 11" fill="none" className="inline-block">
-      <path d="M1 5.5L4.5 9L10.5 2" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M7 5.5L10.5 9L16.5 2" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-  )
+  const seen = status === 'read'
   return (
     <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="inline-block">
-      <path d="M1 5.5L4.5 9L10 2" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M1 5.5L4.5 9L10 2" 
+        stroke={seen ? '#1a5fa8' : '#9ca3af'} 
+        strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   )
 }
@@ -127,18 +119,18 @@ export default function Messaging() {
     return enriched
   }, [])
 
-  // ── MARK MESSAGES READ (DB is source of truth) ────────────
+  // ── MARK MESSAGES SEEN ───────────────────────────────────
   const markRead = useCallback(async (convoId) => {
     if (!profile) return
-    await supabase.rpc('hhf_mark_messages_read', {
-      message_ids: await supabase
-        .from('hhf_messages')
-        .select('id')
-        .eq('conversation_id', convoId)
-        .neq('sender_id', profile.id)
-        .neq('status', 'read')
-        .then(({ data }) => (data || []).map(m => m.id))
-    })
+    const { data: unread } = await supabase
+      .from('hhf_messages')
+      .select('id')
+      .eq('conversation_id', convoId)
+      .neq('sender_id', profile.id)
+      .neq('status', 'read')
+    if (unread?.length) {
+      await supabase.rpc('hhf_mark_messages_read', { message_ids: unread.map(m => m.id) })
+    }
   }, [profile])
 
   // ── POLL STATUS EVERY 5s (reliable tick updates) ──────────
