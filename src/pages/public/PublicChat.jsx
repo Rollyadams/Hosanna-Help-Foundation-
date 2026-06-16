@@ -344,6 +344,34 @@ function ChatWindow({ visitor, convoId }) {
 
       {/* Input */}
       <div className="px-3 py-3 bg-white border-t border-gray-100 flex-shrink-0 flex items-end gap-2">
+        <input
+          type="file" accept="image/*,.pdf,.doc,.docx"
+          className="hidden" id="guest-file-input"
+          onChange={async (e) => {
+            const file = e.target.files?.[0]
+            if (!file) return
+            const path = `${convoId}/${Date.now()}_${file.name}`
+            const { error } = await supabase.storage.from('hhf-documents').upload(path, file)
+            if (error) { alert('Upload failed'); return }
+            const { data: msg } = await supabase.from('hhf_messages')
+              .insert({ conversation_id: convoId, sender_id: visitor.id, body: null, status: 'sent' })
+              .select().single()
+            if (msg) {
+              await supabase.from('hhf_message_attachments').insert({
+                message_id: msg.id, storage_path: path, file_name: file.name,
+                file_size: file.size, mime_type: file.type,
+                type: file.type.startsWith('image/') ? 'image' : 'document'
+              })
+            }
+            e.target.value = ''
+          }}
+        />
+        <button onClick={() => document.getElementById('guest-file-input').click()}
+          className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg flex-shrink-0">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+          </svg>
+        </button>
         <textarea ref={textRef} value={newMsg} onChange={e => setNewMsg(e.target.value)}
           onKeyDown={handleKey} rows={1} placeholder="Type your message..."
           className="flex-1 resize-none px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-blue-500 transition-colors"
