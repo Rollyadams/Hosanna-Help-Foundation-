@@ -16,7 +16,7 @@ export default function StaffDashboard() {
       const today = new Date().toISOString().split('T')[0]
       const [{ data: a }, { data: c }] = await Promise.all([
         supabase.from('hhf_appointments').select('*, client:client_id(full_name)')
-          .eq('staff_id', profile.id).gte('starts_at', today).order('starts_at').limit(5),
+          .eq('staff_id', profile.id).gte('scheduled_at', today).order('scheduled_at').limit(5),
         supabase.from('hhf_staff_assignments').select('client:client_id(id, full_name, status)')
           .eq('staff_id', profile.id).limit(5),
       ])
@@ -48,9 +48,9 @@ export default function StaffDashboard() {
                 <div className="w-2 h-2 rounded-full bg-hhf-blue flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <div className="font-medium text-sm">{a.client?.full_name}</div>
-                  <div className="text-xs text-gray-400 capitalize">{a.type.replace('_',' ')}</div>
+                  <div className="text-xs text-gray-400 capitalize">{(a.service_type || 'General').replace('_',' ')}</div>
                 </div>
-                <div className="text-xs text-gray-500">{new Date(a.starts_at).toLocaleTimeString('en-NG',{hour:'2-digit',minute:'2-digit'})}</div>
+                <div className="text-xs text-gray-500">{new Date(a.scheduled_at).toLocaleTimeString('en-NG',{hour:'2-digit',minute:'2-digit'})}</div>
                 <span className={`badge-${a.status}`}>{a.status}</span>
               </div>
             ))}
