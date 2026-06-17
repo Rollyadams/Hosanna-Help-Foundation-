@@ -16,10 +16,10 @@ export default function AdminDashboard() {
 
       const [{ count: clients }, { data: appts }] = await Promise.all([
         supabase.from('hhf_profiles').select('*', { count: 'exact', head: true }).eq('role', 'client').eq('status', 'active'),
-        supabase.from('hhf_appointments').select('*, client:client_id(full_name), staff:staff_id(full_name)').gte('starts_at', today).order('starts_at').limit(5),
+        supabase.from('hhf_appointments').select('*, client:client_id(full_name), staff:staff_id(full_name)').gte('scheduled_at', today).order('scheduled_at').limit(5),
       ])
 
-      const todayAppts  = appts?.filter(a => a.starts_at.startsWith(today)).length || 0
+      const todayAppts  = appts?.filter(a => a.scheduled_at?.startsWith(today)).length || 0
       const pendingAppts = appts?.filter(a => a.status === 'pending').length || 0
 
       setStats({ clients: clients || 0, todayAppts, pendingAppts, openCases: 0 })
@@ -41,7 +41,7 @@ export default function AdminDashboard() {
             <h1 className="font-serif text-2xl font-semibold text-gray-900">Good morning, {firstName} 👋</h1>
             <p className="text-gray-400 text-sm mt-0.5">{today}</p>
           </div>
-          <Link to="/admin/appointments/new" className="btn-primary flex items-center gap-1.5">
+          <Link to="/admin/appointments" className="btn-primary flex items-center gap-1.5">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             New Appointment
           </Link>
@@ -88,8 +88,8 @@ export default function AdminDashboard() {
                     <tr key={a.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                       <td className="py-3 px-3 font-medium">{a.client?.full_name}</td>
                       <td className="py-3 px-3 text-gray-500">{a.staff?.full_name}</td>
-                      <td className="py-3 px-3 text-gray-500">{new Date(a.starts_at).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })}</td>
-                      <td className="py-3 px-3 text-gray-500 capitalize">{a.type.replace('_', ' ')}</td>
+                      <td className="py-3 px-3 text-gray-500">{new Date(a.scheduled_at).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })}</td>
+                      <td className="py-3 px-3 text-gray-500 capitalize">{(a.service_type || 'General').replace('_', ' ')}</td>
                       <td className="py-3 px-3">
                         <span className={`badge-${a.status === 'confirmed' ? 'confirmed' : a.status === 'pending' ? 'pending' : 'cancelled'}`}>
                           {a.status}
