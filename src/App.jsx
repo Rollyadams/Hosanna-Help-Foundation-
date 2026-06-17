@@ -13,6 +13,7 @@ import StaffDashboard   from './pages/staff/Dashboard'
 import ClientDashboard  from './pages/client/Dashboard'
 import ComingSoon       from './pages/shared/ComingSoon'
 import Messaging        from './pages/shared/Messaging'
+import Appointments     from './pages/shared/Appointments'
 import PublicChat       from './pages/public/PublicChat'
 
 export default function App() {
@@ -31,7 +32,7 @@ export default function App() {
           <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
             <Route path="/admin"                  element={<AdminDashboard />} />
             <Route path="/admin/users"            element={<ComingSoon title="User Management" />} />
-            <Route path="/admin/appointments"     element={<ComingSoon title="Appointments" />} />
+            <Route path="/admin/appointments"     element={<Appointments />} />
             <Route path="/admin/messages"         element={<Messaging />} />
             <Route path="/admin/documents"        element={<ComingSoon title="Documents" />} />
             <Route path="/admin/reports"          element={<ComingSoon title="Reports" />} />
@@ -45,7 +46,7 @@ export default function App() {
           <Route element={<ProtectedRoute allowedRoles={['staff', 'admin']} />}>
             <Route path="/staff"                  element={<StaffDashboard />} />
             <Route path="/staff/clients"          element={<ComingSoon title="My Clients" />} />
-            <Route path="/staff/appointments"     element={<ComingSoon title="Appointments" />} />
+            <Route path="/staff/appointments"     element={<Appointments />} />
             <Route path="/staff/messages"         element={<Messaging />} />
             <Route path="/staff/documents"        element={<ComingSoon title="Documents" />} />
             <Route path="/staff/availability"     element={<ComingSoon title="Availability" />} />
@@ -56,8 +57,8 @@ export default function App() {
           {/* Client routes */}
           <Route element={<ProtectedRoute allowedRoles={['client']} />}>
             <Route path="/client"                     element={<ClientDashboard />} />
-            <Route path="/client/appointments"        element={<ComingSoon title="My Appointments" />} />
-            <Route path="/client/appointments/new"    element={<ComingSoon title="Book Appointment" />} />
+            <Route path="/client/appointments"        element={<Appointments />} />
+            <Route path="/client/appointments/new"    element={<Appointments />} />
             <Route path="/client/messages"            element={<Messaging />} />
             <Route path="/client/documents"           element={<ComingSoon title="My Documents" />} />
             <Route path="/client/notifications"       element={<ComingSoon title="Notifications" />} />
