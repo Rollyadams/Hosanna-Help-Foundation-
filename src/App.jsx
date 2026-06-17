@@ -14,6 +14,7 @@ import ClientDashboard  from './pages/client/Dashboard'
 import ComingSoon       from './pages/shared/ComingSoon'
 import Messaging        from './pages/shared/Messaging'
 import Appointments     from './pages/shared/Appointments'
+import UserManagement   from './pages/admin/UserManagement'
 import PublicChat       from './pages/public/PublicChat'
 
 export default function App() {
@@ -31,7 +32,7 @@ export default function App() {
           {/* Admin routes */}
           <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
             <Route path="/admin"                  element={<AdminDashboard />} />
-            <Route path="/admin/users"            element={<ComingSoon title="User Management" />} />
+            <Route path="/admin/users"            element={<UserManagement />} />
             <Route path="/admin/appointments"     element={<Appointments />} />
             <Route path="/admin/messages"         element={<Messaging />} />
             <Route path="/admin/documents"        element={<ComingSoon title="Documents" />} />
