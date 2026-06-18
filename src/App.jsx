@@ -16,6 +16,7 @@ import Messaging        from './pages/shared/Messaging'
 import Appointments     from './pages/shared/Appointments'
 import UserManagement   from './pages/admin/UserManagement'
 import AuditLog         from './pages/admin/AuditLog'
+import Settings         from './pages/admin/Settings'
 import Documents        from './pages/shared/Documents'
 import Notifications    from './pages/shared/Notifications'
 import Availability     from './pages/staff/Availability'
@@ -42,7 +43,7 @@ export default function App() {
             <Route path="/admin/documents"        element={<Documents />} />
             <Route path="/admin/reports"          element={<ComingSoon title="Reports" />} />
             <Route path="/admin/audit"            element={<AuditLog />} />
-            <Route path="/admin/settings"         element={<ComingSoon title="Settings" />} />
+            <Route path="/admin/settings"         element={<Settings />} />
             <Route path="/admin/notifications"    element={<Notifications />} />
             <Route path="/admin/profile"          element={<ComingSoon title="My Profile" />} />
           </Route>
