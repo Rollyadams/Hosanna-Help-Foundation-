@@ -75,42 +75,57 @@ function UploadForm({ profile, onUploaded, onClose }) {
   async function handleUpload() {
     if (!file) return setError('Please select a file.')
     if (!label.trim()) return setError('Please enter a label.')
-    setUploading(true); setError('')
+    setUploading(true); setError(''); setProgress(10)
 
     const ext  = file.name.split('.').pop()
     const path = `${profile.id}/${Date.now()}.${ext}`
 
-    // Upload to Supabase Storage bucket "hhf-documents"
+    // Upload to storage
     const { error: upErr } = await supabase.storage
       .from('hhf-documents')
       .upload(path, file, { contentType: file.type, upsert: false })
 
-    if (upErr) { setError(upErr.message); setUploading(false); return }
+    if (upErr) { setError(upErr.message); setUploading(false); setProgress(0); return }
 
-    setProgress(60)
+    setProgress(70)
 
-    // Get public/signed URL
+    // Get public URL (synchronous — no await needed)
     const { data: urlData } = supabase.storage.from('hhf-documents').getPublicUrl(path)
 
-    // Save record
-    const { error: dbErr } = await supabase.from('hhf_documents').insert({
-      owner_id:     profile.id,
-      uploaded_by:  profile.id,
-      label:        label.trim(),
-      file_path:    path,
-      file_url:     urlData?.publicUrl || '',
-      file_type:    file.type,
-      file_size:    file.size,
-      access_level: access,
-    })
+    setProgress(85)
+
+    // Save record — use upsert-style insert with explicit returning
+    const { data: inserted, error: dbErr } = await supabase
+      .from('hhf_documents')
+      .insert({
+        owner_id:     profile.id,
+        uploaded_by:  profile.id,
+        label:        label.trim(),
+        file_path:    path,
+        file_url:     urlData?.publicUrl || '',
+        file_type:    file.type || 'application/octet-stream',
+        file_size:    file.size,
+        access_level: access,
+      })
+      .select()
+      .single()
+
+    if (dbErr) {
+      // DB failed — clean up the uploaded file
+      await supabase.storage.from('hhf-documents').remove([path]).catch(() => {})
+      setError(`DB error: ${dbErr.message}`)
+      setUploading(false)
+      setProgress(0)
+      return
+    }
 
     setProgress(100)
-    if (dbErr) { setError(dbErr.message); setUploading(false); return }
 
-    // Audit log
-    await supabase.from('hhf_audit_logs').insert({
+    // Audit log (fire and forget)
+    supabase.from('hhf_audit_logs').insert({
       actor_id: profile.id, action: 'document_uploaded',
-      target_type: 'document', details: { label: label.trim(), access }
+      target_type: 'document', target_id: inserted?.id,
+      details: { label: label.trim(), access }
     }).catch(() => {})
 
     setUploading(false)
