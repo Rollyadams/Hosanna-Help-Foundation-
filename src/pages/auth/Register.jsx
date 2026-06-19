@@ -19,6 +19,26 @@ export default function Register() {
     const { error } = await signUp(form.email, form.password, form.fullName)
     setLoading(false)
     if (error) { setError(error.message); return }
+
+    // Notify all admins of new registration
+    try {
+      const { data: admins } = await import('../../lib/supabase').then(m =>
+        m.supabase.from('hhf_profiles').select('id').eq('role', 'admin').eq('status', 'active')
+      )
+      if (admins?.length) {
+        const { supabase } = await import('../../lib/supabase')
+        await supabase.from('hhf_notifications').insert(
+          admins.map(a => ({
+            recipient_id: a.id,
+            type:         'new_user_registered',
+            title:        'New User Registration',
+            body:         `${form.fullName} (${form.email}) has registered as ${form.role} and is awaiting activation.`,
+            link:         '/admin/users',
+          }))
+        )
+      }
+    } catch (_) { /* non-blocking */ }
+
     setDone(true)
   }
 
