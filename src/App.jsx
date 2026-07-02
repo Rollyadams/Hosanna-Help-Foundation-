@@ -16,6 +16,7 @@ import Messaging        from './pages/shared/Messaging'
 import PublicChat       from './pages/public/PublicChat'
 import StaffApply       from './pages/public/StaffApply'
 import StaffInvites     from './pages/admin/StaffInvites'
+import Roster           from './pages/shared/Roster'
 
 export default function App() {
   return (
@@ -34,6 +35,7 @@ export default function App() {
             <Route path="/admin"                  element={<AdminDashboard />} />
             <Route path="/admin/users"            element={<ComingSoon title="User Management" />} />
             <Route path="/admin/staff-invites"    element={<StaffInvites />} />
+            <Route path="/admin/roster"           element={<Roster />} />
             <Route path="/admin/appointments"     element={<ComingSoon title="Appointments" />} />
             <Route path="/admin/messages"         element={<Messaging />} />
             <Route path="/admin/documents"        element={<ComingSoon title="Documents" />} />
@@ -51,7 +53,7 @@ export default function App() {
             <Route path="/staff/appointments"     element={<ComingSoon title="Appointments" />} />
             <Route path="/staff/messages"         element={<Messaging />} />
             <Route path="/staff/documents"        element={<ComingSoon title="Documents" />} />
-            <Route path="/staff/availability"     element={<ComingSoon title="Availability" />} />
+            <Route path="/staff/availability"     element={<Roster />} />
             <Route path="/staff/notifications"    element={<ComingSoon title="Notifications" />} />
             <Route path="/staff/profile"          element={<ComingSoon title="My Profile" />} />
           </Route>
@@ -68,8 +70,8 @@ export default function App() {
           </Route>
 
           {/* Public chat — no auth required */}
-          <Route path="/chat"         element={<PublicChat />} />
-          <Route path="/staff-apply"  element={<StaffApply />} />
+          <Route path="/chat"        element={<PublicChat />} />
+          <Route path="/staff-apply" element={<StaffApply />} />
 
           {/* Default */}
           <Route path="/" element={<Navigate to="/login" replace />} />
