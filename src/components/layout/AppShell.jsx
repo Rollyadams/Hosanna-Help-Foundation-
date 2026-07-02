@@ -1,8 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import HHFLogo from '../ui/HHFLogo'
-import { supabase } from '../../lib/supabase'
 
 const navItems = {
   admin: [
@@ -13,6 +12,8 @@ const navItems = {
     { label: 'Documents',    icon: 'file',     path: '/admin/documents' },
     { label: 'Reports',      icon: 'chart',    path: '/admin/reports' },
     { label: 'Audit Log',    icon: 'log',      path: '/admin/audit' },
+    { label: 'Staff Invites', icon: 'users',   path: '/admin/staff-invites' },
+    { label: 'Roster',       icon: 'clock',    path: '/admin/roster' },
     { label: 'Settings',     icon: 'settings', path: '/admin/settings' },
   ],
   staff: [
@@ -48,33 +49,6 @@ export default function AppShell({ children }) {
   const location = useLocation()
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [unreadCount, setUnreadCount] = useState(0)
-
-  // Live unread notification count
-  useEffect(() => {
-    if (!profile) return
-    // Initial count
-    supabase.from('hhf_notifications')
-      .select('id', { count: 'exact' })
-      .eq('recipient_id', profile.id)
-      .eq('read', false)
-      .then(({ count }) => setUnreadCount(count || 0))
-
-    // Realtime updates
-    const channel = supabase.channel('appshell-notifs')
-      .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'hhf_notifications',
-        filter: `recipient_id=eq.${profile.id}`,
-      }, () => {
-        supabase.from('hhf_notifications')
-          .select('id', { count: 'exact' })
-          .eq('recipient_id', profile.id)
-          .eq('read', false)
-          .then(({ count }) => setUnreadCount(count || 0))
-      })
-      .subscribe()
-    return () => supabase.removeChannel(channel)
-  }, [profile])
 
   const items = navItems[profile?.role] || []
   const initials = profile?.full_name?.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase() || '??'
@@ -137,11 +111,7 @@ export default function AppShell({ children }) {
           <div className="flex-1" />
           <Link to={`/${profile?.role}/notifications`} className="relative p-2 text-gray-500 hover:text-hhf-blue">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/></svg>
-            {unreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
-                {unreadCount > 99 ? '99+' : unreadCount}
-              </span>
-            )}
+            <span className="absolute top-1 right-1 w-2 h-2 bg-hhf-red rounded-full" />
           </Link>
         </header>
         {/* Page content */}
