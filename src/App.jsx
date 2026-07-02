@@ -13,14 +13,9 @@ import StaffDashboard   from './pages/staff/Dashboard'
 import ClientDashboard  from './pages/client/Dashboard'
 import ComingSoon       from './pages/shared/ComingSoon'
 import Messaging        from './pages/shared/Messaging'
-import Appointments     from './pages/shared/Appointments'
-import UserManagement   from './pages/admin/UserManagement'
-import AuditLog         from './pages/admin/AuditLog'
-import Settings         from './pages/admin/Settings'
-import Documents        from './pages/shared/Documents'
-import Notifications    from './pages/shared/Notifications'
-import Availability     from './pages/staff/Availability'
 import PublicChat       from './pages/public/PublicChat'
+import StaffApply       from './pages/public/StaffApply'
+import StaffInvites     from './pages/admin/StaffInvites'
 
 export default function App() {
   return (
@@ -37,14 +32,15 @@ export default function App() {
           {/* Admin routes */}
           <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
             <Route path="/admin"                  element={<AdminDashboard />} />
-            <Route path="/admin/users"            element={<UserManagement />} />
-            <Route path="/admin/appointments"     element={<Appointments />} />
+            <Route path="/admin/users"            element={<ComingSoon title="User Management" />} />
+            <Route path="/admin/staff-invites"    element={<StaffInvites />} />
+            <Route path="/admin/appointments"     element={<ComingSoon title="Appointments" />} />
             <Route path="/admin/messages"         element={<Messaging />} />
-            <Route path="/admin/documents"        element={<Documents />} />
+            <Route path="/admin/documents"        element={<ComingSoon title="Documents" />} />
             <Route path="/admin/reports"          element={<ComingSoon title="Reports" />} />
-            <Route path="/admin/audit"            element={<AuditLog />} />
-            <Route path="/admin/settings"         element={<Settings />} />
-            <Route path="/admin/notifications"    element={<Notifications />} />
+            <Route path="/admin/audit"            element={<ComingSoon title="Audit Log" />} />
+            <Route path="/admin/settings"         element={<ComingSoon title="Settings" />} />
+            <Route path="/admin/notifications"    element={<ComingSoon title="Notifications" />} />
             <Route path="/admin/profile"          element={<ComingSoon title="My Profile" />} />
           </Route>
 
@@ -52,27 +48,28 @@ export default function App() {
           <Route element={<ProtectedRoute allowedRoles={['staff', 'admin']} />}>
             <Route path="/staff"                  element={<StaffDashboard />} />
             <Route path="/staff/clients"          element={<ComingSoon title="My Clients" />} />
-            <Route path="/staff/appointments"     element={<Appointments />} />
+            <Route path="/staff/appointments"     element={<ComingSoon title="Appointments" />} />
             <Route path="/staff/messages"         element={<Messaging />} />
-            <Route path="/staff/documents"        element={<Documents />} />
-            <Route path="/staff/availability"     element={<Availability />} />
-            <Route path="/staff/notifications"    element={<Notifications />} />
+            <Route path="/staff/documents"        element={<ComingSoon title="Documents" />} />
+            <Route path="/staff/availability"     element={<ComingSoon title="Availability" />} />
+            <Route path="/staff/notifications"    element={<ComingSoon title="Notifications" />} />
             <Route path="/staff/profile"          element={<ComingSoon title="My Profile" />} />
           </Route>
 
           {/* Client routes */}
           <Route element={<ProtectedRoute allowedRoles={['client']} />}>
             <Route path="/client"                     element={<ClientDashboard />} />
-            <Route path="/client/appointments"        element={<Appointments />} />
-            <Route path="/client/appointments/new"    element={<Appointments />} />
+            <Route path="/client/appointments"        element={<ComingSoon title="My Appointments" />} />
+            <Route path="/client/appointments/new"    element={<ComingSoon title="Book Appointment" />} />
             <Route path="/client/messages"            element={<Messaging />} />
-            <Route path="/client/documents"           element={<Documents />} />
-            <Route path="/client/notifications"       element={<Notifications />} />
+            <Route path="/client/documents"           element={<ComingSoon title="My Documents" />} />
+            <Route path="/client/notifications"       element={<ComingSoon title="Notifications" />} />
             <Route path="/client/profile"             element={<ComingSoon title="My Profile" />} />
           </Route>
 
           {/* Public chat — no auth required */}
-          <Route path="/chat" element={<PublicChat />} />
+          <Route path="/chat"         element={<PublicChat />} />
+          <Route path="/staff-apply"  element={<StaffApply />} />
 
           {/* Default */}
           <Route path="/" element={<Navigate to="/login" replace />} />
