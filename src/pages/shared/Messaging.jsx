@@ -83,6 +83,10 @@ export default function Messaging() {
 
   const [conversations, setConversations] = useState([])
   const [activeConvo, setActiveConvo]     = useState(null)
+  const [queueTab, setQueueTab]           = useState('pending') // pending | active | closed
+  const [showCloseModal, setShowCloseModal] = useState(false)
+  const [closeReport, setCloseReport]     = useState({ staff_report: '', follow_up: '' })
+  const [closingSaving, setClosingSaving] = useState(false)
   const [messages, setMessages]           = useState([])
   const [newMessage, setNewMessage]       = useState('')
   const [sending, setSending]             = useState(false)
@@ -179,7 +183,7 @@ export default function Messaging() {
     setLoadingConvos(true)
     const { data } = await supabase
       .from('hhf_conversations')
-      .select('id, last_message_at, last_message_preview, participant_a, participant_b')
+      .select('id, last_message_at, last_message_preview, participant_a, participant_b, status, priority, source')
       .order('last_message_at', { ascending: false, nullsFirst: false })
 
     if (!data) { setLoadingConvos(false); return }
@@ -351,6 +355,41 @@ export default function Messaging() {
 
   function handleKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }
 
+  // ── QUEUE ACTIONS ─────────────────────────────────────────
+  async function setPriority(convoId, priority) {
+    await supabase.from('hhf_conversations').update({ priority }).eq('id', convoId)
+    setConversations(prev => prev.map(c => c.id === convoId ? { ...c, priority } : c))
+    if (activeConvo?.id === convoId) setActiveConvo(c => ({ ...c, priority }))
+  }
+
+  async function closeConversation() {
+    if (!activeConvo) return
+    setClosingSaving(true)
+    await supabase.from('hhf_conversations').update({
+      status:       'closed',
+      staff_report: closeReport.staff_report || null,
+      follow_up:    closeReport.follow_up    || null,
+      closed_at:    new Date().toISOString(),
+      closed_by:    profile.id,
+    }).eq('id', activeConvo.id)
+    await supabase.from('hhf_audit_logs').insert({
+      actor_id: profile.id, action: 'conversation_closed',
+      target_type: 'conversation', target_id: activeConvo.id,
+      details: { report: closeReport.staff_report, follow_up: closeReport.follow_up }
+    }).catch(() => {})
+    setConversations(prev => prev.map(c => c.id === activeConvo.id ? { ...c, status: 'closed' } : c))
+    setActiveConvo(null)
+    setShowCloseModal(false)
+    setCloseReport({ staff_report: '', follow_up: '' })
+    setClosingSaving(false)
+  }
+
+  // Queue filtered lists
+  const isStaffOrAdmin = role === 'staff' || role === 'admin'
+  const queueFiltered = isStaffOrAdmin
+    ? conversations.filter(c => (c.status || 'pending') === queueTab)
+    : conversations
+
   const filtered  = conversations.filter(c => (c.other?.full_name || '').toLowerCase().includes(search.toLowerCase()))
   const otherUser = activeConvo?.other
 
@@ -362,7 +401,9 @@ export default function Messaging() {
         <div className={`w-full md:w-72 flex-shrink-0 border-r border-gray-100 flex flex-col ${activeConvo ? 'hidden md:flex' : 'flex'}`}>
           <div className="p-4 border-b border-gray-100">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="font-semibold text-gray-900">Messages</h2>
+              <h2 className="font-semibold text-gray-900">
+                {isStaffOrAdmin ? 'Chat Queue' : 'Messages'}
+              </h2>
               <button onClick={() => { setShowNewConvo(true); loadUsers() }}
                 className="w-7 h-7 bg-hhf-blue text-white rounded-lg flex items-center justify-center hover:bg-hhf-blue-light">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
@@ -370,6 +411,27 @@ export default function Messaging() {
                 </svg>
               </button>
             </div>
+
+            {/* Queue tabs — staff/admin only */}
+            {isStaffOrAdmin && (
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5 mb-3">
+                {[
+                  { key: 'pending', label: 'Pending', color: 'text-amber-600' },
+                  { key: 'active',  label: 'Active',  color: 'text-green-600' },
+                  { key: 'closed',  label: 'Closed',  color: 'text-gray-500'  },
+                ].map(tab => {
+                  const count = conversations.filter(c => (c.status || 'pending') === tab.key).length
+                  return (
+                    <button key={tab.key} onClick={() => setQueueTab(tab.key)}
+                      className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md text-xs font-medium transition-colors ${queueTab === tab.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                      {tab.label}
+                      {count > 0 && <span className={`text-xs font-bold ${queueTab === tab.key ? tab.color : 'text-gray-400'}`}>{count}</span>}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
             <div className="relative">
               <svg className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                 <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -391,22 +453,28 @@ export default function Messaging() {
                 </svg>
                 <p className="text-sm text-gray-400">No conversations yet</p>
               </div>
-            ) : filtered.map(convo => (
+            ) : (isStaffOrAdmin ? queueFiltered : conversations)
+                .filter(c => (c.other?.full_name || '').toLowerCase().includes(search.toLowerCase()))
+                .map(convo => (
               <div key={convo.id} onClick={() => openConversation(convo)}
-                className={`flex items-center gap-3 px-4 py-3 cursor-pointer border-b border-gray-50 hover:bg-gray-50 transition-colors ${activeConvo?.id === convo.id ? 'bg-hhf-blue-pale border-l-2 border-l-hhf-blue' : ''}`}>
+                className={`flex items-center gap-3 px-4 py-3 cursor-pointer border-b border-gray-50 hover:bg-gray-50 transition-colors ${activeConvo?.id === convo.id ? 'bg-hhf-blue-pale border-l-2 border-l-hhf-blue' : ''} ${convo.priority === 'important' && activeConvo?.id !== convo.id ? 'border-l-2 border-l-red-400' : ''}`}>
                 <Avatar name={convo.other?.full_name} id={convo.other?.id || ''} online={convo.other?.online_status === 'online'} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-1">
                     <span className="font-semibold text-sm text-gray-900 truncate">{convo.other?.full_name || 'Unknown'}</span>
-                    <span className="text-xs text-gray-400 flex-shrink-0">{timeAgo(convo.last_message_at)}</span>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {convo.priority === 'important' && <span className="text-xs">🔴</span>}
+                      <span className="text-xs text-gray-400">{timeAgo(convo.last_message_at)}</span>
+                    </div>
                   </div>
                   <div className="flex items-center justify-between gap-1 mt-0.5">
                     <p className="text-xs text-gray-400 truncate">{convo.last_message_preview || 'No messages yet'}</p>
                     <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 capitalize ${
+                      convo.source === 'public_chat'  ? 'bg-amber-50 text-amber-600' :
                       convo.other?.role === 'client'  ? 'bg-hhf-blue-pale text-hhf-blue' :
                       convo.other?.role === 'staff'   ? 'bg-blue-50 text-blue-700' :
                       convo.other?.role === 'visitor' ? 'bg-amber-50 text-amber-600' : 'bg-gray-100 text-gray-500'
-                    }`}>{convo.other?.role || 'visitor'}</span>
+                    }`}>{convo.source === 'public_chat' ? 'public' : convo.other?.role || 'visitor'}</span>
                   </div>
                 </div>
               </div>
@@ -429,8 +497,27 @@ export default function Messaging() {
                   {otherUser?.online_status === 'online' ? '● Online' : '○ Offline'}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                {isAdmin && <span className="text-xs bg-hhf-blue text-white px-2 py-0.5 rounded-full">Admin view</span>}
+              <div className="flex items-center gap-1.5">
+                {/* Priority toggle — staff/admin */}
+                {isStaffOrAdmin && activeConvo?.status !== 'closed' && (
+                  <button
+                    onClick={() => setPriority(activeConvo.id, activeConvo.priority === 'important' ? 'normal' : 'important')}
+                    title={activeConvo?.priority === 'important' ? 'Mark normal' : 'Mark important'}
+                    className={`p-1.5 rounded-lg text-xs transition-colors ${activeConvo?.priority === 'important' ? 'bg-red-50 text-red-500' : 'text-gray-400 hover:bg-gray-100'}`}>
+                    🔴
+                  </button>
+                )}
+                {/* Close conversation — staff/admin */}
+                {isStaffOrAdmin && activeConvo?.status !== 'closed' && (
+                  <button
+                    onClick={() => setShowCloseModal(true)}
+                    className="px-2.5 py-1.5 text-xs font-medium bg-gray-100 text-gray-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors">
+                    Close
+                  </button>
+                )}
+                {activeConvo?.status === 'closed' && (
+                  <span className="text-xs px-2 py-1 bg-gray-100 text-gray-500 rounded-lg">Closed</span>
+                )}
                 <button onClick={() => setShowInfo(!showInfo)}
                   className={`p-2 rounded-lg ${showInfo ? 'bg-hhf-blue-pale text-hhf-blue' : 'text-gray-400 hover:bg-gray-100'}`}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -601,6 +688,51 @@ export default function Messaging() {
           </div>
         )}
       </div>
+
+      {/* ── CLOSE + REPORT MODAL ── */}
+      {showCloseModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+          onClick={e => e.target === e.currentTarget && setShowCloseModal(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-900">Close Conversation</h3>
+              <button onClick={() => setShowCloseModal(false)} className="text-gray-400 hover:text-gray-600 p-1">✕</button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Staff Report <span className="text-gray-400">(summary of this conversation)</span></label>
+                <textarea
+                  rows={3}
+                  className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  placeholder="What was discussed? What was the outcome?"
+                  value={closeReport.staff_report}
+                  onChange={e => setCloseReport(r => ({ ...r, staff_report: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Follow-up Actions <span className="text-gray-400">(optional)</span></label>
+                <textarea
+                  rows={2}
+                  className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  placeholder="Any actions needed? e.g. Schedule appointment, refer to specialist…"
+                  value={closeReport.follow_up}
+                  onChange={e => setCloseReport(r => ({ ...r, follow_up: e.target.value }))}
+                />
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => setShowCloseModal(false)}
+                  className="flex-1 py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50">
+                  Cancel
+                </button>
+                <button onClick={closeConversation} disabled={closingSaving}
+                  className="flex-1 py-2.5 text-sm font-medium text-white bg-red-500 rounded-xl hover:bg-red-600 disabled:opacity-50">
+                  {closingSaving ? 'Closing…' : 'Close Conversation'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   )
 }
