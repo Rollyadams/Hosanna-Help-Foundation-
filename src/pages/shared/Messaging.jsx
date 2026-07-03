@@ -80,6 +80,7 @@ function getAttachmentUrl(path) {
 // ── MAIN ───────────────────────────────────────────────────
 export default function Messaging() {
   const { profile, isAdmin } = useAuth()
+  const role = profile?.role
 
   const [conversations, setConversations] = useState([])
   const [activeConvo, setActiveConvo]     = useState(null)
