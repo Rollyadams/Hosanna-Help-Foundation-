@@ -57,12 +57,14 @@ function StaffRoster({ staffId, weekStart, readOnly = false }) {
     setLoading(true)
     const { data } = await supabase
       .from('hhf_roster')
-      .select('*')
+      .select('day, start_time, end_time, is_available, note')
       .eq('staff_id', staffId)
       .eq('week_start', weekStart)
     const map = {}
     DAYS.forEach(d => { map[d.key] = { ...DEFAULT_SLOT } })
-    ;(data || []).forEach(r => { map[r.day] = { start_time: r.start_time, end_time: r.end_time, is_available: r.is_available, note: r.note || '' } })
+    ;(data || []).forEach(r => {
+      map[r.day] = { start_time: r.start_time, end_time: r.end_time, is_available: r.is_available, note: r.note || '' }
+    })
     setSlots(map)
     setLoading(false)
   }, [staffId, weekStart])
