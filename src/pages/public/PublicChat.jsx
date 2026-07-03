@@ -158,9 +158,16 @@ function ChatWindow({ visitor, convoId }) {
   const [newMsg, setNewMsg]     = useState('')
   const [sending, setSending]   = useState(false)
   const [staffOnline, setStaffOnline] = useState(false)
+  const [showBooking, setShowBooking] = useState(false)
+  const [bookingForm, setBookingForm] = useState({ date: '', time: '', note: '' })
+  const [bookingSent, setBookingSent] = useState(false)
+  const awayTimerRef  = useRef(null)
+  const staffReplied  = useRef(false)
   const bottomRef = useRef(null)
   const textRef   = useRef(null)
   const visitorRef = useRef(visitor)
+
+  const AWAY_MINUTES = 25 // trigger after 25 mins of no staff reply
 
   useEffect(() => { visitorRef.current = visitor }, [visitor])
 
@@ -222,6 +229,11 @@ function ChatWindow({ visitor, convoId }) {
           setMessages(prev => prev.map(m =>
             m.id === msg.id ? { ...m, status: 'read', read_at: new Date().toISOString() } : m
           ))
+          // Staff replied — cancel away timer
+          if (!msg.is_away_reply) {
+            staffReplied.current = true
+            if (awayTimerRef.current) clearTimeout(awayTimerRef.current)
+          }
         }
       })
       .on('postgres_changes', {
@@ -237,7 +249,10 @@ function ChatWindow({ visitor, convoId }) {
       })
       .subscribe()
 
-    return () => supabase.removeChannel(sub)
+    return () => {
+      supabase.removeChannel(sub)
+      if (awayTimerRef.current) clearTimeout(awayTimerRef.current)
+    }
   }, [convoId])
 
   async function sendMessage() {
@@ -253,6 +268,29 @@ function ChatWindow({ visitor, convoId }) {
     setNewMsg('')
     textRef.current?.focus()
     setSending(false)
+
+    // Start away timer on first visitor message (if staff hasn't replied yet)
+    if (!staffReplied.current && !awayTimerRef.current) {
+      awayTimerRef.current = setTimeout(async () => {
+        if (staffReplied.current) return // staff replied in time — skip
+        // Send away message into chat
+        const { data: awayMsg } = await supabase
+          .from('hhf_away_messages').select('body').eq('is_active', true).limit(1).maybeSingle()
+        const awayBody = awayMsg?.body ||
+          "Thanks for reaching out! Our team is currently unavailable. Would you like to book an appointment so the next available staff can follow up with you?"
+        const { data: staffRow } = await supabase
+          .from('hhf_conversations').select('participant_a, participant_b').eq('id', convoId).single()
+        const staffId = staffRow?.participant_a === visitor.id ? staffRow?.participant_b : staffRow?.participant_a
+        await supabase.from('hhf_messages').insert({
+          conversation_id: convoId,
+          sender_id: staffId,
+          body: awayBody,
+          status: 'sent',
+          is_away_reply: true,
+        })
+        setShowBooking(true)
+      }, AWAY_MINUTES * 60 * 1000)
+    }
   }
 
   function handleKey(e) {
@@ -341,6 +379,77 @@ function ChatWindow({ visitor, convoId }) {
         })}
         <div ref={bottomRef} />
       </div>
+
+      {/* Appointment booking card — shown after away timer fires */}
+      {showBooking && !bookingSent && (
+        <div className="mx-3 mb-2 bg-white border border-blue-200 rounded-2xl p-4 shadow-sm flex-shrink-0">
+          <p className="text-sm font-semibold text-gray-900 mb-1">📅 Book an Appointment</p>
+          <p className="text-xs text-gray-500 mb-3">Our team will follow up with you as soon as possible.</p>
+          <div className="space-y-2">
+            <input
+              type="date"
+              min={new Date().toISOString().split('T')[0]}
+              className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={bookingForm.date}
+              onChange={e => setBookingForm(f => ({ ...f, date: e.target.value }))}
+            />
+            <input
+              type="text"
+              placeholder="Preferred time (e.g. 10:00 AM)"
+              className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={bookingForm.time}
+              onChange={e => setBookingForm(f => ({ ...f, time: e.target.value }))}
+            />
+            <textarea
+              placeholder="Any additional notes? (optional)"
+              rows={2}
+              className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              value={bookingForm.note}
+              onChange={e => setBookingForm(f => ({ ...f, note: e.target.value }))}
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowBooking(false)}
+                className="flex-1 py-2 text-xs font-medium text-gray-500 border border-gray-200 rounded-xl hover:bg-gray-50">
+                Dismiss
+              </button>
+              <button
+                onClick={async () => {
+                  if (!bookingForm.date) return
+                  // Create appointment record
+                  const { data: staffRow } = await supabase
+                    .from('hhf_conversations').select('participant_a, participant_b').eq('id', convoId).single()
+                  const staffId = staffRow?.participant_a === visitor.id ? staffRow?.participant_b : staffRow?.participant_a
+                  const scheduledAt = new Date(`${bookingForm.date}T${bookingForm.time.includes(':') ? bookingForm.time.slice(0,5) : '09:00'}`)
+                  await supabase.from('hhf_appointments').insert({
+                    staff_id:        staffId,
+                    client_id:       visitor.id,
+                    booked_by:       visitor.id,
+                    scheduled_at:    scheduledAt.toISOString(),
+                    duration_minutes: 60,
+                    service_type:    'Public Chat Follow-up',
+                    notes:           bookingForm.note || null,
+                    status:          'pending',
+                  })
+                  // Confirm in chat
+                  await supabase.from('hhf_messages').insert({
+                    conversation_id: convoId,
+                    sender_id:       staffId,
+                    body:            `✅ Appointment requested for ${new Date(bookingForm.date).toLocaleDateString('en-NG', { weekday:'long', day:'numeric', month:'long' })}${bookingForm.time ? ' at ' + bookingForm.time : ''}. Our team will confirm shortly.`,
+                    status:          'sent',
+                    is_away_reply:   true,
+                  })
+                  setBookingSent(true)
+                  setShowBooking(false)
+                }}
+                disabled={!bookingForm.date}
+                className="flex-1 py-2 text-xs font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 disabled:opacity-50">
+                Request Appointment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Input */}
       <div className="px-3 py-3 bg-white border-t border-gray-100 flex-shrink-0 flex items-end gap-2">
