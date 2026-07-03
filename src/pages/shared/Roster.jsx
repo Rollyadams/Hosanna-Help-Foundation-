@@ -107,12 +107,14 @@ function StaffRoster({ staffId, weekStart, readOnly = false }) {
               />
               {slot.is_available ? (
                 <div className="flex items-center gap-2 flex-1">
-                  <input type="time" value={slot.start_time} disabled={readOnly}
+                  <input type="text" value={slot.start_time} disabled={readOnly}
                     onChange={e => updateSlot(key, 'start_time', e.target.value)}
+                    placeholder="09:00"
                     className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-50" />
                   <span className="text-gray-400 text-xs">–</span>
-                  <input type="time" value={slot.end_time} disabled={readOnly}
+                  <input type="text" value={slot.end_time} disabled={readOnly}
                     onChange={e => updateSlot(key, 'end_time', e.target.value)}
+                    placeholder="17:00"
                     className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-50" />
                 </div>
               ) : (
@@ -231,7 +233,7 @@ export default function Roster() {
           <StaffRoster
             staffId={staffId}
             weekStart={weekStart}
-            readOnly={isAdmin && selectedStaff !== profile?.id}
+            readOnly={false}
           />
         )}
       </div>
