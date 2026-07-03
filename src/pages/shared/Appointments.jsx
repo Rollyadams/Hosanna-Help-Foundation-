@@ -88,6 +88,15 @@ function AppointmentCard({ appt, role, onAction }) {
   const isUpcoming = ['pending','confirmed'].includes(appt.status)
   const counterpart = role === 'client' ? appt.staff_name : appt.client_name
 
+  // 12hr confirmation deadline for pending appointments
+  const deadline12h = appt.status === 'pending' && appt.created_at
+    ? new Date(new Date(appt.created_at).getTime() + 12 * 3600000)
+    : null
+  const now = new Date()
+  const hoursLeft = deadline12h ? Math.max(0, (deadline12h - now) / 3600000) : null
+  const isUrgent  = hoursLeft !== null && hoursLeft < 3
+  const isExpired = hoursLeft !== null && hoursLeft === 0
+
   return (
     <div className="bg-white rounded-xl border border-gray-100 p-4 hover:shadow-sm transition-shadow">
       <div className="flex items-start gap-3">
@@ -114,6 +123,17 @@ function AppointmentCard({ appt, role, onAction }) {
 
           {appt.notes && (
             <p className="mt-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 line-clamp-2">{appt.notes}</p>
+          )}
+
+          {/* 12hr deadline warning */}
+          {deadline12h && (role === 'admin' || role === 'staff') && (
+            <div className={`mt-2 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg ${isUrgent ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+              <span>⏱</span>
+              {isExpired
+                ? 'Confirmation deadline passed — please action now'
+                : `Confirm within ${hoursLeft < 1 ? `${Math.ceil(hoursLeft * 60)}min` : `${hoursLeft.toFixed(1)}h`} (by ${deadline12h.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })})`
+              }
+            </div>
           )}
 
           {/* Actions */}
