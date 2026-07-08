@@ -51,7 +51,6 @@ const STEPS = [
   { label: 'Declaration', emoji: '✍️' },
 ]
 
-const BLOOD_GROUPS = ['A+','A-','B+','B-','AB+','AB-','O+','O-']
 const EMP_TYPES    = ['Full-Time','Part-Time','Contract','Intern','Temporary']
 const GENDERS      = ['Male','Female','Other','Prefer not to say']
 const EDU_LEVELS   = ["High School","Diploma","Bachelor's","Master's","PhD","Professional Certification"]
@@ -82,7 +81,7 @@ export default function StaffApply() {
     prev_company_2:'', prev_title_2:'', prev_from_2:'', prev_to_2:'', prev_reason_2:'',
     ref1_name:'', ref1_company:'', ref1_contact:'',
     ref2_name:'', ref2_company:'', ref2_contact:'',
-    emg_name:'', emg_relationship:'', emg_phone:'', blood_group:'', medical_notes:'',
+    emg_name:'', emg_relationship:'', emg_phone:'',
     password:'', confirm:'',
   })
 
@@ -194,7 +193,7 @@ export default function StaffApply() {
             { name: form.ref1_name, company: form.ref1_company, contact: form.ref1_contact },
             { name: form.ref2_name, company: form.ref2_company, contact: form.ref2_contact },
           ].filter(r => r.name),
-          blood_group: form.blood_group, medical_notes: form.medical_notes,
+          blood_group: null, medical_notes: null,
           emg_relationship: form.emg_relationship,
         }
       }, { onConflict: 'id' })
@@ -378,13 +377,6 @@ export default function StaffApply() {
                 <Field label="Relationship" required><input className={inputCls} value={form.emg_relationship} onChange={e => set('emg_relationship', e.target.value)} placeholder="e.g. Spouse" /></Field>
                 <Field label="Phone Number" required><input className={inputCls} type="tel" value={form.emg_phone} onChange={e => set('emg_phone', e.target.value)} placeholder="+234..." /></Field>
               </div>
-              <Field label="Blood Group">
-                <select className={inputCls} value={form.blood_group} onChange={e => set('blood_group', e.target.value)}>
-                  <option value="">Unknown</option>
-                  {BLOOD_GROUPS.map(b => <option key={b}>{b}</option>)}
-                </select>
-              </Field>
-              <Field label="Known Medical Conditions / Allergies"><textarea className={inputCls} rows={2} value={form.medical_notes} onChange={e => set('medical_notes', e.target.value)} placeholder="Optional — only if relevant to work" /></Field>
               <div className="border-t border-gray-100 pt-4 space-y-3">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Document Uploads</p>
                 <Field label="Valid Government-Issued ID"><DropZone inputRef={idRef} file={idFile} onFile={setIdFile} accept=".pdf,.jpg,.jpeg,.png" label="Passport, Driver's License or NIN slip" /></Field>
