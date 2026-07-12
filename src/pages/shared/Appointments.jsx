@@ -449,7 +449,12 @@ export default function Appointments() {
     }
 
     const { error: err } = await supabase.from('hhf_appointments').insert(payload)
-    if (err) return err.message
+    if (err) {
+      if (err.code === '23P01' || err.message?.includes('hhf_appointments_no_overlap')) {
+        return 'That time slot was just booked by someone else. Please choose a different time.'
+      }
+      return err.message
+    }
 
     // Audit log
     await supabase.from('hhf_audit_logs').insert({
