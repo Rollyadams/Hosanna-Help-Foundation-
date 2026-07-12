@@ -18,6 +18,9 @@ export default function ProtectedRoute({ allowedRoles }) {
     </div>
   )
 
+  if (profile.status === 'pending') return <Navigate to="/pending" replace />
+  if (profile.status === 'suspended') return <Navigate to="/login" replace />
+
   if (allowedRoles && !allowedRoles.includes(profile.role)) {
     const redirectMap = { admin: '/admin', staff: '/staff', client: '/client' }
     return <Navigate to={redirectMap[profile.role] || '/login'} replace />
