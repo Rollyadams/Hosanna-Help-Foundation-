@@ -17,6 +17,7 @@ import PublicChat       from './pages/public/PublicChat'
 import StaffApply       from './pages/public/StaffApply'
 import StaffInvites     from './pages/admin/StaffInvites'
 import Roster           from './pages/shared/Roster'
+import Reports          from './pages/admin/Reports'
 
 export default function App() {
   return (
@@ -39,7 +40,7 @@ export default function App() {
             <Route path="/admin/appointments"     element={<ComingSoon title="Appointments" />} />
             <Route path="/admin/messages"         element={<Messaging />} />
             <Route path="/admin/documents"        element={<ComingSoon title="Documents" />} />
-            <Route path="/admin/reports"          element={<ComingSoon title="Reports" />} />
+            <Route path="/admin/reports"          element={<Reports />} />
             <Route path="/admin/audit"            element={<ComingSoon title="Audit Log" />} />
             <Route path="/admin/settings"         element={<ComingSoon title="Settings" />} />
             <Route path="/admin/notifications"    element={<ComingSoon title="Notifications" />} />
