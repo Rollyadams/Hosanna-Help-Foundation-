@@ -340,7 +340,7 @@ export default function UserManagement() {
       target_type: 'profile',
       target_id:   id,
       details:     fields,
-    }).catch(() => {})
+    }).catch(e => console.error('Audit log insert failed:', e))
 
     load()
     return null
