@@ -21,7 +21,8 @@ function ReadTick({ status, mine }) {
 // ── VISITOR FORM ────────────────────────────────────────────
 function VisitorForm({ onStart, onReturn }) {
   const [mode, setMode]   = useState('new')
-  const [form, setForm]   = useState({ name: '', phone: '', email: '', password: '', confirm: '', message: '' })
+  const [form, setForm]   = useState({ name: '', phone: '', email: '', password: '', confirm: '', category: '', message: '' })
+  const CATEGORIES = ['General Inquiry', 'Medical Assistance', 'Education Support', 'Shelter / Housing', 'Food Assistance', 'Counseling', 'Other']
   const [ret, setRet]     = useState({ phone: '', password: '' })
   const [errors, setErrors] = useState({})
   const [retError, setRetError] = useState('')
@@ -37,6 +38,7 @@ function VisitorForm({ onStart, onReturn }) {
     if (!form.password)       e.password = 'Required'
     if (form.password.length < 6) e.password = 'Min 6 characters'
     if (form.password !== form.confirm) e.confirm = 'Passwords do not match'
+    if (!form.category)       e.category = 'Required'
     if (!form.message.trim()) e.message = 'Required'
     return e
   }
@@ -107,6 +109,15 @@ function VisitorForm({ onStart, onReturn }) {
                   {errors[f.name] && <p className="text-xs text-red-500 mt-1">{errors[f.name]}</p>}
                 </div>
               ))}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">What is this about? *</label>
+                <select name="category" value={form.category} onChange={upd}
+                  className={`w-full px-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:border-blue-500 bg-white ${errors.category ? 'border-red-400' : 'border-gray-200'}`}>
+                  <option value="">Select a category</option>
+                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                {errors.category && <p className="text-xs text-red-500 mt-1">{errors.category}</p>}
+              </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1.5">How can we help? *</label>
                 <textarea name="message" value={form.message} onChange={upd} rows={3}
@@ -587,7 +598,7 @@ export default function PublicChat() {
 
       const { data: convo, error: cErr } = await supabase
         .from('hhf_conversations')
-        .insert({ participant_a: a, participant_b: b })
+        .insert({ participant_a: a, participant_b: b, category: form.category || null })
         .select().single()
 
       if (cErr) throw new Error(cErr.message)
@@ -604,7 +615,7 @@ export default function PublicChat() {
       await supabase.from('hhf_notifications').insert({
         user_id: staffId,
         type: 'new_message',
-        title: `New chat from ${form.name}`,
+        title: `New chat from ${form.name}${form.category ? ` — ${form.category}` : ''}`,
         body: form.message.slice(0, 80),
         link: `/admin/messages?convo=${convo.id}`
       })
