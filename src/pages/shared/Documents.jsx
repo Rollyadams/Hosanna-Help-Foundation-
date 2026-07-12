@@ -126,7 +126,7 @@ function UploadForm({ profile, onUploaded, onClose }) {
       actor_id: profile.id, action: 'document_uploaded',
       target_type: 'document', target_id: inserted?.id,
       details: { label: label.trim(), access }
-    }).catch(() => {})
+    }).catch(e => console.error('Audit log insert failed:', e))
 
     setUploading(false)
     onUploaded()
@@ -333,7 +333,7 @@ export default function Documents() {
       actor_id: profile.id, action: 'document_deleted',
       target_type: 'document', target_id: doc.id,
       details: { label: doc.label }
-    }).catch(() => {})
+    }).catch(e => console.error('Audit log insert failed:', e))
 
     setDeleting(null)
     load()
