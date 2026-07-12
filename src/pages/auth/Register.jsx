@@ -16,7 +16,7 @@ export default function Register() {
     e.preventDefault()
     if (form.password !== form.confirm) { setError('Passwords do not match'); return }
     setLoading(true); setError('')
-    const { error } = await signUp(form.email, form.password, form.fullName)
+    const { error } = await signUp(form.email, form.password, form.fullName, form.role)
     setLoading(false)
     if (error) { setError(error.message); return }
 
