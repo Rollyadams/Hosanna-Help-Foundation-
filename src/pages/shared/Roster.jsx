@@ -190,7 +190,9 @@ export default function Roster() {
           <h1 className="text-xl font-bold text-gray-900">
             {isAdmin ? 'Staff Roster' : 'My Availability Roster'}
           </h1>
-          <p className="text-sm text-gray-500 mt-0.5">Weekly schedule management</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {isAdmin ? 'Edit any staff member\'s weekly schedule' : 'Weekly schedule management'}
+          </p>
         </div>
         {isAdmin && (
           <button onClick={generateNextWeek}
@@ -243,7 +245,7 @@ export default function Roster() {
 
       {isAdmin && (
         <p className="text-xs text-gray-400 text-center mt-3">
-          Admin view is read-only. Staff manage their own slots.
+          Editing {staffList.find(s => s.id === selectedStaff)?.full_name || 'staff'}'s schedule. Changes save directly to their roster.
         </p>
       )}
     </AppShell>
