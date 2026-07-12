@@ -33,10 +33,10 @@ export function AuthProvider({ children }) {
     setLoading(false)
   }
 
-  async function signUp(email, password, fullName) {
+  async function signUp(email, password, fullName, role = 'client') {
     return supabase.auth.signUp({
       email, password,
-      options: { data: { app: 'hhf', full_name: fullName } },
+      options: { data: { app: 'hhf', full_name: fullName, role } },
     })
   }
 
