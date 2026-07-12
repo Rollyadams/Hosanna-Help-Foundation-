@@ -12,11 +12,7 @@ export default function ProtectedRoute({ allowedRoles }) {
 
   if (!user) return <Navigate to="/login" replace />
 
-  if (!profile) return (
-    <div className="min-h-screen flex items-center justify-center text-gray-500 text-sm">
-      Account pending activation. Please contact the administrator.
-    </div>
-  )
+  if (!profile) return <Navigate to="/pending" replace />
 
   if (profile.status === 'pending') return <Navigate to="/pending" replace />
   if (profile.status === 'suspended') return <Navigate to="/login" replace />
