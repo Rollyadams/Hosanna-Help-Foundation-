@@ -462,7 +462,7 @@ export default function Appointments() {
       action:      'appointment_created',
       target_type: 'appointment',
       details:     { scheduled_at: start.toISOString(), staff_id: payload.staff_id, client_id: payload.client_id }
-    }).catch(() => {})
+    }).catch(e => console.error('Audit log insert failed:', e))
 
     load()
     return null
@@ -488,7 +488,7 @@ export default function Appointments() {
       target_type: 'appointment',
       target_id:   appt.id,
       details:     { previous_status: appt.status, new_status: newStatus }
-    }).catch(() => {})
+    }).catch(e => console.error('Audit log insert failed:', e))
 
     load()
   }
