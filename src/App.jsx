@@ -18,6 +18,7 @@ import StaffApply       from './pages/public/StaffApply'
 import StaffInvites     from './pages/admin/StaffInvites'
 import Roster           from './pages/shared/Roster'
 import Reports          from './pages/admin/Reports'
+import Users            from './pages/admin/Users'
 
 export default function App() {
   return (
@@ -34,7 +35,7 @@ export default function App() {
           {/* Admin routes */}
           <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
             <Route path="/admin"                  element={<AdminDashboard />} />
-            <Route path="/admin/users"            element={<ComingSoon title="User Management" />} />
+            <Route path="/admin/users"            element={<Users />} />
             <Route path="/admin/staff-invites"    element={<StaffInvites />} />
             <Route path="/admin/roster"           element={<Roster />} />
             <Route path="/admin/appointments"     element={<ComingSoon title="Appointments" />} />
