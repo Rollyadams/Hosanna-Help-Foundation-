@@ -31,12 +31,12 @@ const ROLE_STYLES = {
 
 const STATUS_STYLES = {
   active:   'bg-green-50 text-green-700 border border-green-200',
-  inactive: 'bg-gray-100 text-gray-500 border border-gray-200',
+  suspended: 'bg-gray-100 text-gray-500 border border-gray-200',
   pending:  'bg-amber-50 text-amber-700 border border-amber-200',
 }
 
 const ROLES   = ['all', 'admin', 'staff', 'client']
-const STATUSES = ['all', 'active', 'pending', 'inactive']
+const STATUSES = ['all', 'active', 'pending', 'suspended']
 
 // ── ICONS ──────────────────────────────────────────────────
 const Icon = {
@@ -167,7 +167,7 @@ function EditUserModal({ user, onSave, onClose }) {
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Account Status</label>
           <div className="grid grid-cols-3 gap-2">
-            {['active', 'pending', 'inactive'].map(s => (
+            {['active', 'pending', 'suspended'].map(s => (
               <button
                 key={s}
                 type="button"
@@ -348,12 +348,14 @@ export default function UserManagement() {
 
   async function handleActivate(user) {
     const err = await updateUser(user.id, { status: 'active' })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
     if (err) setError(err)
     else setSuccess(`${user.full_name} has been activated.`)
   }
 
   async function handleDeactivate(user) {
-    const err = await updateUser(user.id, { status: 'inactive' })
+    const err = await updateUser(user.id, { status: 'suspended' })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
     if (err) setError(err)
     else setSuccess(`${user.full_name} has been deactivated.`)
   }
@@ -520,7 +522,7 @@ export default function UserManagement() {
           message={`Activate ${confirmAction.user.full_name}? They will be able to log in and access the platform.`}
           confirmLabel="Activate"
           confirmClass="bg-green-600 hover:bg-green-700"
-          onConfirm={() => { handleActivate(confirmAction.user); setConfirmAction(null) }}
+          onConfirm={async () => { setConfirmAction(null); await handleActivate(confirmAction.user) }}
           onCancel={() => setConfirmAction(null)}
         />
       )}
@@ -529,7 +531,7 @@ export default function UserManagement() {
           message={`Deactivate ${confirmAction.user.full_name}? They will lose access immediately.`}
           confirmLabel="Deactivate"
           confirmClass="bg-gray-700 hover:bg-gray-800"
-          onConfirm={() => { handleDeactivate(confirmAction.user); setConfirmAction(null) }}
+          onConfirm={async () => { setConfirmAction(null); await handleDeactivate(confirmAction.user) }}
           onCancel={() => setConfirmAction(null)}
         />
       )}
