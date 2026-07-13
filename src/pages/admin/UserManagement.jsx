@@ -112,7 +112,8 @@ function EditUserModal({ user, onSave, onClose }) {
   async function handleSave() {
     if (!form.full_name.trim()) return setError('Full name is required.')
     setSaving(true)
-    const err = await onSave(user.id, form)
+    const timeout = new Promise(resolve => setTimeout(() => resolve('Request timed out. Please try again.'), 10000))
+    const err = await Promise.race([onSave(user.id, form), timeout])
     setSaving(false)
     if (err) setError(err)
     else onClose()
@@ -333,16 +334,22 @@ export default function UserManagement() {
       .eq('id', id)
     if (err) return err.message
 
-    // Audit log
-    await supabase.from('hhf_audit_logs').insert({
+    // Audit log (best-effort, never blocks the user-facing update)
+    supabase.from('hhf_audit_logs').insert({
       actor_id:    profile.id,
       action:      'user_updated',
       target_type: 'profile',
       target_id:   id,
       details:     fields,
-    }).catch(e => console.error('Audit log insert failed:', e))
+    }).then(({ error }) => { if (error) console.error('Audit log insert failed:', error) })
 
-    load()
+    try {
+      await load()
+    } catch (e) {
+      console.error('Reload after update failed:', e)
+      // Fall back to a local patch so the UI still reflects the change
+      setUsers(prev => prev.map(u => u.id === id ? { ...u, ...fields } : u))
+    }
     return null
   }
 
