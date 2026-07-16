@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { supabase } from '../../lib/supabase'
 import HHFLogo from '../ui/HHFLogo'
 
 const navItems = {
@@ -44,11 +45,39 @@ const icons = {
   clock:    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
 }
 
+// A short, generated "ring" tone — no external audio file needed.
+function playAlertTone() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext
+    if (!Ctx) return
+    const ctx = new Ctx()
+    const beep = (freq, start, duration) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'sine'
+      osc.frequency.value = freq
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime + start)
+      gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + start + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + duration)
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start(ctx.currentTime + start)
+      osc.stop(ctx.currentTime + start + duration)
+    }
+    beep(880, 0, 0.15)
+    beep(660, 0.18, 0.15)
+  } catch {
+    /* audio not available — fail silently */
+  }
+}
+
 export default function AppShell({ children }) {
   const { profile, signOut } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
+  const notifPermissionAsked = useRef(false)
 
   const items = navItems[profile?.role] || []
   const initials = profile?.full_name?.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase() || '??'
@@ -57,6 +86,71 @@ export default function AppShell({ children }) {
     await signOut()
     navigate('/login')
   }
+
+  const loadUnreadCount = useCallback(async () => {
+    if (!profile?.id) return
+    const { count } = await supabase
+      .from('hhf_notifications')
+      .select('id', { count: 'exact', head: true })
+      .eq('recipient_id', profile.id)
+      .eq('read', false)
+    setUnreadCount(count || 0)
+  }, [profile])
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch-on-mount, same pattern used elsewhere in this codebase (e.g. Notifications.jsx)
+  useEffect(() => { loadUnreadCount() }, [loadUnreadCount])
+
+  // Notifications.jsx dispatches this after marking read/deleting, so the
+  // header badge count doesn't go stale while that page is open.
+  useEffect(() => {
+    const handler = () => loadUnreadCount()
+    window.addEventListener('hhf:notifications-changed', handler)
+    return () => window.removeEventListener('hhf:notifications-changed', handler)
+  }, [loadUnreadCount])
+
+  // Ask for browser notification permission once, only for staff/admin roles
+  // who actually need to be alerted about incoming chats.
+  useEffect(() => {
+    if (!profile) return
+    if (profile.role !== 'admin' && profile.role !== 'staff') return
+    if (notifPermissionAsked.current) return
+    notifPermissionAsked.current = true
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {})
+    }
+  }, [profile])
+
+  // Realtime: ring + badge + browser notification the moment a new
+  // notification lands for this staff member, app-wide (not just on
+  // the Notifications page).
+  useEffect(() => {
+    if (!profile?.id) return
+
+    const channel = supabase
+      .channel(`appshell_notifications_${profile.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'hhf_notifications',
+        filter: `recipient_id=eq.${profile.id}`,
+      }, payload => {
+        setUnreadCount(prev => prev + 1)
+        playAlertTone()
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          try {
+            new Notification(payload.new.title || 'HHF Connect', {
+              body: payload.new.body || 'You have a new notification.',
+              icon: '/favicon.svg',
+            })
+          } catch {
+            /* ignore */
+          }
+        }
+      })
+      .subscribe()
+
+    return () => supabase.removeChannel(channel)
+  }, [profile?.id])
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
@@ -111,7 +205,11 @@ export default function AppShell({ children }) {
           <div className="flex-1" />
           <Link to={`/${profile?.role}/notifications`} className="relative p-2 text-gray-500 hover:text-hhf-blue">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/></svg>
-            <span className="absolute top-1 right-1 w-2 h-2 bg-hhf-red rounded-full" />
+            {unreadCount > 0 && (
+              <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center bg-hhf-red text-white text-[10px] font-bold rounded-full leading-none">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
           </Link>
         </header>
         {/* Page content */}
