@@ -124,9 +124,16 @@ export default function Notifications() {
     return () => supabase.removeChannel(channel)
   }, [profile])
 
+  // Let AppShell's header badge know the unread count changed, without
+  // needing a shared state library — a plain DOM event is enough here.
+  function notifyBadgeRefresh() {
+    window.dispatchEvent(new CustomEvent('hhf:notifications-changed'))
+  }
+
   async function markRead(id) {
     await supabase.from('hhf_notifications').update({ read: true }).eq('id', id)
     setNotifs(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
+    notifyBadgeRefresh()
   }
 
   async function markAllRead() {
@@ -135,16 +142,19 @@ export default function Notifications() {
       .eq('recipient_id', profile.id)
       .eq('read', false)
     setNotifs(prev => prev.map(n => ({ ...n, read: true })))
+    notifyBadgeRefresh()
   }
 
   async function deleteNotif(id) {
     await supabase.from('hhf_notifications').delete().eq('id', id)
     setNotifs(prev => prev.filter(n => n.id !== id))
+    notifyBadgeRefresh()
   }
 
   async function clearAll() {
     await supabase.from('hhf_notifications').delete().eq('recipient_id', profile.id)
     setNotifs([])
+    notifyBadgeRefresh()
   }
 
   const unreadCount = notifs.filter(n => !n.read).length
