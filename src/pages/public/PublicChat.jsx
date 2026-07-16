@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import bcrypt from 'bcryptjs'
 import { supabase } from '../../lib/supabase'
+import { assignStaffForNewConversation, notifyStaffOfConversation, escalateConversation, AWAY_MESSAGE_MINUTES } from '../../lib/roster'
 
 function timeStr(ts) {
   return new Date(ts).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })
@@ -178,8 +179,6 @@ function ChatWindow({ visitor, convoId }) {
   const textRef   = useRef(null)
   const visitorRef = useRef(visitor)
 
-  const AWAY_MINUTES = 25 // trigger after 25 mins of no staff reply
-
   useEffect(() => { visitorRef.current = visitor }, [visitor])
 
   // Mark all unread messages from staff as read
@@ -280,27 +279,45 @@ function ChatWindow({ visitor, convoId }) {
     textRef.current?.focus()
     setSending(false)
 
-    // Start away timer on first visitor message (if staff hasn't replied yet)
+    // Start away/escalation timer on first visitor message (if staff hasn't replied yet)
     if (!staffReplied.current && !awayTimerRef.current) {
       awayTimerRef.current = setTimeout(async () => {
         if (staffReplied.current) return // staff replied in time — skip
-        // Send away message into chat
+
+        const { data: convoRow } = await supabase
+          .from('hhf_conversations')
+          .select('participant_a, participant_b, assigned_staff_id')
+          .eq('id', convoId)
+          .single()
+
+        const currentStaffId = convoRow?.assigned_staff_id
+          || (convoRow?.participant_a === visitor.id ? convoRow?.participant_b : convoRow?.participant_a)
+
+        // Try to hand the conversation to someone else who is actually available
+        const { staffId: newStaffId } = currentStaffId
+          ? await escalateConversation(convoId, currentStaffId)
+          : { staffId: null }
+
+        // Send an away message into the chat either way, so the visitor isn't left hanging
         const { data: awayMsg } = await supabase
           .from('hhf_away_messages').select('body').eq('is_active', true).limit(1).maybeSingle()
         const awayBody = awayMsg?.body ||
           "Thanks for reaching out! Our team is currently unavailable. Would you like to book an appointment so the next available staff can follow up with you?"
-        const { data: staffRow } = await supabase
-          .from('hhf_conversations').select('participant_a, participant_b').eq('id', convoId).single()
-        const staffId = staffRow?.participant_a === visitor.id ? staffRow?.participant_b : staffRow?.participant_a
+        const senderForAwayMsg = newStaffId || currentStaffId
         await supabase.from('hhf_messages').insert({
           conversation_id: convoId,
-          sender_id: staffId,
+          sender_id: senderForAwayMsg,
           body: awayBody,
           status: 'sent',
           is_away_reply: true,
         })
+
+        // Reset so a fresh timer/escalation cycle can run against the newly assigned staff member
+        staffReplied.current = false
+        awayTimerRef.current = null
+
         setShowBooking(true)
-      }, AWAY_MINUTES * 60 * 1000)
+      }, AWAY_MESSAGE_MINUTES * 60 * 1000)
     }
   }
 
@@ -569,26 +586,8 @@ export default function PublicChat() {
 
       if (gErr) throw new Error(gErr.message)
 
-      // Find available staff/admin
-      const { data: onlineStaff } = await supabase
-        .from('hhf_profiles')
-        .select('id')
-        .in('role', ['admin', 'staff'])
-        .eq('status', 'active')
-        .eq('online_status', 'online')
-        .limit(1)
-
-      let staffId = onlineStaff?.[0]?.id
-
-      if (!staffId) {
-        const { data: anyStaff } = await supabase
-          .from('hhf_profiles')
-          .select('id')
-          .in('role', ['admin', 'staff'])
-          .eq('status', 'active')
-          .limit(1)
-        staffId = anyStaff?.[0]?.id
-      }
+      // Round-robin assign to the least-busy available staff member
+      const { staffId } = await assignStaffForNewConversation()
 
       if (!staffId) throw new Error('No staff available. Please try again later.')
 
@@ -598,7 +597,14 @@ export default function PublicChat() {
 
       const { data: convo, error: cErr } = await supabase
         .from('hhf_conversations')
-        .insert({ participant_a: a, participant_b: b, category: form.category || null })
+        .insert({
+          participant_a: a,
+          participant_b: b,
+          category: form.category || null,
+          assigned_staff_id: staffId,
+          assigned_at: new Date().toISOString(),
+          status: 'open',
+        })
         .select().single()
 
       if (cErr) throw new Error(cErr.message)
@@ -611,32 +617,14 @@ export default function PublicChat() {
         status: 'sent'
       })
 
-      // Notify staff
-      await supabase.from('hhf_notifications').insert({
-        user_id: staffId,
-        type: 'new_message',
+      // Notify the assigned staff member (correct recipient_id column, with sound/badge
+      // picked up app-wide via the realtime subscription in AppShell)
+      await notifyStaffOfConversation({
+        staffId,
         title: `New chat from ${form.name}${form.category ? ` — ${form.category}` : ''}`,
-        body: form.message.slice(0, 80),
-        link: `/admin/messages?convo=${convo.id}`
+        body: form.message,
+        convoId: convo.id,
       })
-
-      // Check away message
-      const { data: awayMsg } = await supabase
-        .from('hhf_away_messages')
-        .select('body')
-        .eq('staff_id', staffId)
-        .eq('is_active', true)
-        .maybeSingle()
-
-      if (awayMsg) {
-        await supabase.from('hhf_messages').insert({
-          conversation_id: convo.id,
-          sender_id: staffId,
-          body: awayMsg.body,
-          status: 'sent',
-          is_away_reply: true
-        })
-      }
 
       // Save session
       const session = { visitor: { id: guest.id, full_name: guest.full_name, phone: guest.phone }, convoId: convo.id }
