@@ -22,7 +22,7 @@ function ReadTick({ status, mine }) {
 // ── VISITOR FORM ────────────────────────────────────────────
 function VisitorForm({ onStart, onReturn }) {
   const [mode, setMode]   = useState('new')
-  const [form, setForm]   = useState({ name: '', phone: '', email: '', password: '', confirm: '', category: '', message: '' })
+  const [form, setForm]   = useState({ name: '', category: '', message: '' })
   const CATEGORIES = ['General Inquiry', 'Medical Assistance', 'Education Support', 'Shelter / Housing', 'Food Assistance', 'Counseling', 'Other']
   const [ret, setRet]     = useState({ phone: '', password: '' })
   const [errors, setErrors] = useState({})
@@ -34,11 +34,6 @@ function VisitorForm({ onStart, onReturn }) {
 
   function validate() {
     const e = {}
-    if (!form.name.trim())    e.name    = 'Required'
-    if (!form.phone.trim())   e.phone   = 'Required'
-    if (!form.password)       e.password = 'Required'
-    if (form.password.length < 6) e.password = 'Min 6 characters'
-    if (form.password !== form.confirm) e.confirm = 'Passwords do not match'
     if (!form.category)       e.category = 'Required'
     if (!form.message.trim()) e.message = 'Required'
     return e
@@ -95,21 +90,12 @@ function VisitorForm({ onStart, onReturn }) {
         <div className="p-6">
           {mode === 'new' ? (
             <form onSubmit={handleNew} className="space-y-4">
-              {[
-                { label: 'Full Name *', name: 'name', type: 'text', placeholder: 'Your full name' },
-                { label: 'Phone Number *', name: 'phone', type: 'tel', placeholder: '+234 800 000 0000' },
-                { label: 'Email Address (optional)', name: 'email', type: 'email', placeholder: 'your@email.com' },
-                { label: 'Create Password *', name: 'password', type: 'password', placeholder: 'Min 6 characters' },
-                { label: 'Confirm Password *', name: 'confirm', type: 'password', placeholder: 'Repeat password' },
-              ].map(f => (
-                <div key={f.name}>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">{f.label}</label>
-                  <input name={f.name} type={f.type} value={form[f.name]} onChange={upd}
-                    className={`w-full px-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:border-blue-500 ${errors[f.name] ? 'border-red-400' : 'border-gray-200'}`}
-                    placeholder={f.placeholder} />
-                  {errors[f.name] && <p className="text-xs text-red-500 mt-1">{errors[f.name]}</p>}
-                </div>
-              ))}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Name (or nickname)</label>
+                <input name="name" type="text" value={form.name} onChange={upd}
+                  className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500"
+                  placeholder="What should we call you? (optional)" />
+              </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1.5">What is this about? *</label>
                 <select name="category" value={form.category} onChange={upd}
@@ -173,6 +159,13 @@ function ChatWindow({ visitor, convoId }) {
   const [showBooking, setShowBooking] = useState(false)
   const [bookingForm, setBookingForm] = useState({ date: '', time: '', note: '' })
   const [bookingSent, setBookingSent] = useState(false)
+  const [showSavePrompt, setShowSavePrompt] = useState(false)
+  const [savePromptDismissed, setSavePromptDismissed] = useState(false)
+  const [hasAccount, setHasAccount] = useState(true) // assume true until checked, to avoid a flash of the prompt
+  const [saveForm, setSaveForm] = useState({ phone: '', email: '', password: '', confirm: '' })
+  const [saveErrors, setSaveErrors] = useState({})
+  const [saveSubmitting, setSaveSubmitting] = useState(false)
+  const [saveDone, setSaveDone] = useState(false)
   const awayTimerRef  = useRef(null)
   const staffReplied  = useRef(false)
   const bottomRef = useRef(null)
@@ -217,9 +210,21 @@ function ChatWindow({ visitor, convoId }) {
     setStaffOnline((data?.length || 0) > 0)
   }
 
+  // Find out whether this guest already saved an account (has a password),
+  // so we don't nag someone who's already set one up.
+  async function checkHasAccount() {
+    const { data } = await supabase
+      .from('hhf_guest_profiles')
+      .select('password_hash')
+      .eq('id', visitorRef.current.id)
+      .maybeSingle()
+    setHasAccount(!!data?.password_hash)
+  }
+
   useEffect(() => {
     loadMessages()
     checkStaffOnline()
+    checkHasAccount()
 
     const sub = supabase
       .channel(`public_chat_${convoId}`)
@@ -264,6 +269,16 @@ function ChatWindow({ visitor, convoId }) {
       if (awayTimerRef.current) clearTimeout(awayTimerRef.current)
     }
   }, [convoId])
+
+  // Once the visitor has sent a few messages, gently offer to save the
+  // conversation so they can pick it back up later — instead of asking for
+  // a password up front before they've even gotten help.
+  useEffect(() => {
+    if (hasAccount || savePromptDismissed || showSavePrompt) return
+    const visitorMessages = messages.filter(m => m.sender_id === visitor.id).length
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- derived UI trigger from message count, same pattern used elsewhere in this file (e.g. the away-message effect)
+    if (visitorMessages >= 3) setShowSavePrompt(true)
+  }, [messages, hasAccount, savePromptDismissed, showSavePrompt, visitor.id])
 
   async function sendMessage() {
     const body = newMsg.trim()
@@ -323,6 +338,62 @@ function ChatWindow({ visitor, convoId }) {
 
   function handleKey(e) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() }
+  }
+
+  function updSaveForm(e) {
+    setSaveForm(f => ({ ...f, [e.target.name]: e.target.value }))
+    setSaveErrors(p => ({ ...p, [e.target.name]: undefined }))
+  }
+
+  function validateSaveForm() {
+    const e = {}
+    if (!saveForm.phone.trim()) e.phone = 'Required'
+    if (!saveForm.password) e.password = 'Required'
+    else if (saveForm.password.length < 6) e.password = 'Min 6 characters'
+    if (saveForm.password !== saveForm.confirm) e.confirm = 'Passwords do not match'
+    return e
+  }
+
+  async function saveAccount(e) {
+    e.preventDefault()
+    const errs = validateSaveForm()
+    if (Object.keys(errs).length) { setSaveErrors(errs); return }
+    setSaveSubmitting(true)
+    setSaveErrors({})
+    try {
+      // Make sure this phone isn't already tied to a different guest account
+      const { data: existing } = await supabase
+        .from('hhf_guest_profiles')
+        .select('id')
+        .eq('phone', saveForm.phone)
+        .eq('app', 'hhf')
+        .neq('id', visitor.id)
+        .maybeSingle()
+
+      if (existing) {
+        setSaveErrors({ phone: 'This phone number is already registered to another conversation.' })
+        setSaveSubmitting(false)
+        return
+      }
+
+      const salt = bcrypt.genSaltSync(10)
+      const password_hash = bcrypt.hashSync(saveForm.password, salt)
+
+      const { error: updErr } = await supabase
+        .from('hhf_guest_profiles')
+        .update({ phone: saveForm.phone, email: saveForm.email || null, password_hash })
+        .eq('id', visitor.id)
+
+      if (updErr) { setSaveErrors({ phone: updErr.message }); setSaveSubmitting(false); return }
+
+      setHasAccount(true)
+      setSaveDone(true)
+      setSaveSubmitting(false)
+      setTimeout(() => setShowSavePrompt(false), 2000)
+    } catch (err) {
+      setSaveErrors({ phone: err.message || 'Something went wrong. Please try again.' })
+      setSaveSubmitting(false)
+    }
   }
 
   return (
@@ -479,6 +550,68 @@ function ChatWindow({ visitor, convoId }) {
         </div>
       )}
 
+      {/* Save conversation prompt — appears after a few messages, not up front */}
+      {showSavePrompt && (
+        <div className="mx-3 mb-2 bg-white border border-blue-200 rounded-2xl p-4 shadow-sm flex-shrink-0">
+          {saveDone ? (
+            <p className="text-sm font-medium text-green-700 flex items-center gap-2">
+              ✅ Saved! You can continue this conversation anytime from "Continue Chat".
+            </p>
+          ) : (
+            <form onSubmit={saveAccount}>
+              <p className="text-sm font-semibold text-gray-900 mb-1">💬 Save this conversation?</p>
+              <p className="text-xs text-gray-500 mb-3">
+                Add a phone number and password so you can continue this chat later, even after closing the app.
+              </p>
+              <div className="space-y-2">
+                <div>
+                  <input
+                    name="phone" type="tel" value={saveForm.phone} onChange={updSaveForm}
+                    placeholder="+234 800 000 0000"
+                    className={`w-full text-sm border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ${saveErrors.phone ? 'border-red-400' : 'border-gray-200'}`}
+                  />
+                  {saveErrors.phone && <p className="text-xs text-red-500 mt-1">{saveErrors.phone}</p>}
+                </div>
+                <input
+                  name="email" type="email" value={saveForm.email} onChange={updSaveForm}
+                  placeholder="Email (optional)"
+                  className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <div>
+                  <input
+                    name="password" type="password" value={saveForm.password} onChange={updSaveForm}
+                    placeholder="Create a password (min 6 characters)"
+                    className={`w-full text-sm border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ${saveErrors.password ? 'border-red-400' : 'border-gray-200'}`}
+                  />
+                  {saveErrors.password && <p className="text-xs text-red-500 mt-1">{saveErrors.password}</p>}
+                </div>
+                <div>
+                  <input
+                    name="confirm" type="password" value={saveForm.confirm} onChange={updSaveForm}
+                    placeholder="Confirm password"
+                    className={`w-full text-sm border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ${saveErrors.confirm ? 'border-red-400' : 'border-gray-200'}`}
+                  />
+                  {saveErrors.confirm && <p className="text-xs text-red-500 mt-1">{saveErrors.confirm}</p>}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setShowSavePrompt(false); setSavePromptDismissed(true) }}
+                    className="flex-1 py-2 text-xs font-medium text-gray-500 border border-gray-200 rounded-xl hover:bg-gray-50">
+                    Not now
+                  </button>
+                  <button
+                    type="submit" disabled={saveSubmitting}
+                    className="flex-1 py-2 text-xs font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 disabled:opacity-50">
+                    {saveSubmitting ? 'Saving…' : 'Save Conversation'}
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+
       {/* Input */}
       <div className="px-3 py-3 bg-white border-t border-gray-100 flex-shrink-0 flex items-end gap-2">
         <input
@@ -561,27 +694,12 @@ export default function PublicChat() {
   async function handleStart(form) {
     setError('')
     try {
-      // Check phone not already registered
-      const { data: existing } = await supabase
-        .from('hhf_guest_profiles')
-        .select('id, full_name, phone')
-        .eq('phone', form.phone)
-        .eq('app', 'hhf')
-        .maybeSingle()
-
-      if (existing) {
-        setError('This phone number is already registered. Please use "Continue Chat" to log in.')
-        return
-      }
-
-      // Hash password
-      const salt = bcrypt.genSaltSync(10)
-      const password_hash = bcrypt.hashSync(form.password, salt)
-
-      // Create guest profile
+      // Create a lightweight guest profile — just a name (or "Anonymous" if
+      // they skipped it). Phone/email/password are collected later, only if
+      // the visitor chooses to save the conversation for later.
       const { data: guest, error: gErr } = await supabase
         .from('hhf_guest_profiles')
-        .insert({ app: 'hhf', full_name: form.name, phone: form.phone, email: form.email || null, password_hash })
+        .insert({ app: 'hhf', full_name: form.name?.trim() || 'Anonymous' })
         .select().single()
 
       if (gErr) throw new Error(gErr.message)
