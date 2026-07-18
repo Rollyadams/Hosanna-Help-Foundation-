@@ -87,7 +87,7 @@ export async function pickNextStaff(availableIds) {
     .from('hhf_conversations')
     .select('assigned_staff_id, assigned_at')
     .in('assigned_staff_id', availableIds)
-    .eq('status', 'open')
+    .eq('status', 'active')
 
   const load = new Map(availableIds.map(id => [id, { count: 0, lastAssigned: null }]))
   ;(openConvos || []).forEach(c => {
