@@ -721,7 +721,7 @@ export default function PublicChat() {
           category: form.category || null,
           assigned_staff_id: staffId,
           assigned_at: new Date().toISOString(),
-          status: 'open',
+          status: 'active',
         })
         .select().single()
 
