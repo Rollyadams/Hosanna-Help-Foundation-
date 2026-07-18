@@ -23,6 +23,7 @@ import Appointments      from './pages/shared/Appointments'
 import Documents         from './pages/shared/Documents'
 import AuditLog          from './pages/admin/AuditLog'
 import Settings          from './pages/admin/Settings'
+import Notifications     from './pages/shared/Notifications'
 
 export default function App() {
   return (
@@ -48,7 +49,7 @@ export default function App() {
             <Route path="/admin/reports"          element={<Reports />} />
             <Route path="/admin/audit"            element={<AuditLog />} />
             <Route path="/admin/settings"         element={<Settings />} />
-            <Route path="/admin/notifications"    element={<ComingSoon title="Notifications" />} />
+            <Route path="/admin/notifications"    element={<Notifications />} />
             <Route path="/admin/profile"          element={<ComingSoon title="My Profile" />} />
           </Route>
 
@@ -60,7 +61,7 @@ export default function App() {
             <Route path="/staff/messages"         element={<Messaging />} />
             <Route path="/staff/documents"        element={<Documents />} />
             <Route path="/staff/availability"     element={<Roster />} />
-            <Route path="/staff/notifications"    element={<ComingSoon title="Notifications" />} />
+            <Route path="/staff/notifications"    element={<Notifications />} />
             <Route path="/staff/profile"          element={<ComingSoon title="My Profile" />} />
           </Route>
 
@@ -71,7 +72,7 @@ export default function App() {
             <Route path="/client/appointments/new"    element={<Appointments />} />
             <Route path="/client/messages"            element={<Messaging />} />
             <Route path="/client/documents"           element={<Documents />} />
-            <Route path="/client/notifications"       element={<ComingSoon title="Notifications" />} />
+            <Route path="/client/notifications"       element={<Notifications />} />
             <Route path="/client/profile"             element={<ComingSoon title="My Profile" />} />
           </Route>
 
