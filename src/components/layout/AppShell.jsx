@@ -78,6 +78,9 @@ export default function AppShell({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const notifPermissionAsked = useRef(false)
+  const originalTitleRef = useRef(typeof document !== 'undefined' ? document.title : 'HHF Connect')
+  const titleFlashRef = useRef(null)
+  const repeatAlertRef = useRef(null)
 
   const items = navItems[profile?.role] || []
   const initials = profile?.full_name?.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase() || '??'
@@ -96,6 +99,61 @@ export default function AppShell({ children }) {
       .eq('read', false)
     setUnreadCount(count || 0)
   }, [profile])
+
+  // Flash the browser tab title back and forth with an urgent message while
+  // the tab is hidden/backgrounded — the best we can do to catch someone's
+  // eye without native push notifications, if they glance at their open
+  // tabs (e.g. phone screen on, browser just not focused).
+  function startTitleFlash(message) {
+    if (titleFlashRef.current) return // already flashing
+    let showAlert = true
+    titleFlashRef.current = setInterval(() => {
+      document.title = showAlert ? message : originalTitleRef.current
+      showAlert = !showAlert
+    }, 1200)
+  }
+
+  function stopTitleFlash() {
+    if (titleFlashRef.current) {
+      clearInterval(titleFlashRef.current)
+      titleFlashRef.current = null
+      document.title = originalTitleRef.current
+    }
+  }
+
+  // Repeat the alert tone every 20s until the person actually looks at the
+  // tab or the notifications page — a single beep is easy to miss if the
+  // phone isn't in hand.
+  function startRepeatingAlert() {
+    if (repeatAlertRef.current) return
+    repeatAlertRef.current = setInterval(() => {
+      if (document.visibilityState === 'hidden') playAlertTone()
+    }, 20 * 1000)
+  }
+
+  function stopRepeatingAlert() {
+    if (repeatAlertRef.current) {
+      clearInterval(repeatAlertRef.current)
+      repeatAlertRef.current = null
+    }
+  }
+
+  // The moment the tab is back in focus, treat it as "seen" — stop
+  // flashing the title and stop repeating the alert tone.
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') {
+        stopTitleFlash()
+        stopRepeatingAlert()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility)
+      stopTitleFlash()
+      stopRepeatingAlert()
+    }
+  }, [])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch-on-mount, same pattern used elsewhere in this codebase (e.g. Notifications.jsx)
   useEffect(() => { loadUnreadCount() }, [loadUnreadCount])
@@ -136,6 +194,14 @@ export default function AppShell({ children }) {
       }, payload => {
         setUnreadCount(prev => prev + 1)
         playAlertTone()
+
+        // If they're not even looking at this tab, escalate: flash the
+        // title and keep re-playing the tone until they come back.
+        if (document.visibilityState === 'hidden') {
+          startTitleFlash(`🔴 New message — ${originalTitleRef.current}`)
+          startRepeatingAlert()
+        }
+
         if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
           try {
             new Notification(payload.new.title || 'HHF Connect', {
