@@ -88,6 +88,7 @@ export default function Messaging() {
   const [showCloseModal, setShowCloseModal] = useState(false)
   const [closeReport, setCloseReport]     = useState({ staff_report: '', follow_up: '' })
   const [closingSaving, setClosingSaving] = useState(false)
+  const [closeError, setCloseError]       = useState('')
   const [messages, setMessages]           = useState([])
   const [newMessage, setNewMessage]       = useState('')
   const [sending, setSending]             = useState(false)
@@ -291,7 +292,7 @@ export default function Messaging() {
   // ── SEND MESSAGE ──────────────────────────────────────────
   async function sendMessage() {
     const body = newMessage.trim()
-    if (!body || !activeConvo || sending) return
+    if (!body || !activeConvo || sending || activeConvo.status === 'closed') return
     setSending(true)
     await supabase.from('hhf_messages').insert({
       conversation_id: activeConvo.id,
@@ -366,23 +367,32 @@ export default function Messaging() {
   async function closeConversation() {
     if (!activeConvo) return
     setClosingSaving(true)
-    await supabase.from('hhf_conversations').update({
-      status:       'closed',
-      staff_report: closeReport.staff_report || null,
-      follow_up:    closeReport.follow_up    || null,
-      closed_at:    new Date().toISOString(),
-      closed_by:    profile.id,
-    }).eq('id', activeConvo.id)
-    await supabase.from('hhf_audit_logs').insert({
-      actor_id: profile.id, action: 'conversation_closed',
-      target_type: 'conversation', target_id: activeConvo.id,
-      details: { report: closeReport.staff_report, follow_up: closeReport.follow_up }
-    }).catch(() => {})
-    setConversations(prev => prev.map(c => c.id === activeConvo.id ? { ...c, status: 'closed' } : c))
-    setActiveConvo(null)
-    setShowCloseModal(false)
-    setCloseReport({ staff_report: '', follow_up: '' })
-    setClosingSaving(false)
+    try {
+      const { error: updErr } = await supabase.from('hhf_conversations').update({
+        status:       'closed',
+        staff_report: closeReport.staff_report || null,
+        follow_up:    closeReport.follow_up    || null,
+        closed_at:    new Date().toISOString(),
+        closed_by:    profile.id,
+      }).eq('id', activeConvo.id)
+
+      if (updErr) throw new Error(updErr.message)
+
+      await supabase.from('hhf_audit_logs').insert({
+        actor_id: profile.id, action: 'conversation_closed',
+        target_type: 'conversation', target_id: activeConvo.id,
+        details: { report: closeReport.staff_report, follow_up: closeReport.follow_up }
+      }).catch(() => {})
+
+      setConversations(prev => prev.map(c => c.id === activeConvo.id ? { ...c, status: 'closed' } : c))
+      setActiveConvo(c => c ? { ...c, status: 'closed' } : c)
+      setShowCloseModal(false)
+      setCloseReport({ staff_report: '', follow_up: '' })
+    } catch (err) {
+      setCloseError(err.message || 'Could not close this conversation. Please try again.')
+    } finally {
+      setClosingSaving(false)
+    }
   }
 
   // Queue filtered lists
@@ -586,33 +596,42 @@ export default function Messaging() {
               <div ref={bottomRef} />
             </div>
 
-            <div className="px-4 py-3 border-t border-gray-100 bg-white flex-shrink-0 flex items-end gap-2">
-              <button onClick={() => fileRef.current?.click()} disabled={uploading}
-                className="p-2 text-gray-400 hover:text-hhf-blue hover:bg-hhf-blue-pale rounded-lg disabled:opacity-50">
-                {uploading
-                  ? <div className="w-5 h-5 border-2 border-hhf-blue border-t-transparent rounded-full animate-spin" />
-                  : <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
-                    </svg>
-                }
-              </button>
-              <input ref={fileRef} type="file" className="hidden" accept="image/*,.pdf,.doc,.docx" onChange={handleFileUpload} />
-              <textarea ref={textRef} value={newMessage} onChange={e => setNewMessage(e.target.value)}
-                onKeyDown={handleKey} rows={1} placeholder="Type a message... (Enter to send)"
-                className="flex-1 resize-none px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-hhf-blue max-h-28"
-                style={{ minHeight: '40px' }}
-                onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 112) + 'px' }}
-              />
-              <button onClick={sendMessage} disabled={!newMessage.trim() || sending}
-                className="w-10 h-10 bg-hhf-blue text-white rounded-xl flex items-center justify-center hover:bg-hhf-blue-light disabled:opacity-40">
-                {sending
-                  ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  : <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-                    </svg>
-                }
-              </button>
-            </div>
+            {activeConvo?.status === 'closed' ? (
+              <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 flex-shrink-0 text-center">
+                <p className="text-sm text-gray-500">
+                  This conversation has been closed.
+                  {isStaffOrAdmin && ' Reopen it from the conversation list if you need to send another message.'}
+                </p>
+              </div>
+            ) : (
+              <div className="px-4 py-3 border-t border-gray-100 bg-white flex-shrink-0 flex items-end gap-2">
+                <button onClick={() => fileRef.current?.click()} disabled={uploading}
+                  className="p-2 text-gray-400 hover:text-hhf-blue hover:bg-hhf-blue-pale rounded-lg disabled:opacity-50">
+                  {uploading
+                    ? <div className="w-5 h-5 border-2 border-hhf-blue border-t-transparent rounded-full animate-spin" />
+                    : <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+                      </svg>
+                  }
+                </button>
+                <input ref={fileRef} type="file" className="hidden" accept="image/*,.pdf,.doc,.docx" onChange={handleFileUpload} />
+                <textarea ref={textRef} value={newMessage} onChange={e => setNewMessage(e.target.value)}
+                  onKeyDown={handleKey} rows={1} placeholder="Type a message... (Enter to send)"
+                  className="flex-1 resize-none px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-hhf-blue max-h-28"
+                  style={{ minHeight: '40px' }}
+                  onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 112) + 'px' }}
+                />
+                <button onClick={sendMessage} disabled={!newMessage.trim() || sending}
+                  className="w-10 h-10 bg-hhf-blue text-white rounded-xl flex items-center justify-center hover:bg-hhf-blue-light disabled:opacity-40">
+                  {sending
+                    ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    : <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                      </svg>
+                  }
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="hidden md:flex flex-1 items-center justify-center bg-gray-50">
@@ -700,6 +719,9 @@ export default function Messaging() {
               <button onClick={() => setShowCloseModal(false)} className="text-gray-400 hover:text-gray-600 p-1">✕</button>
             </div>
             <div className="p-5 space-y-4">
+              {closeError && (
+                <div className="bg-red-50 border border-red-100 text-red-600 text-sm px-3 py-2 rounded-lg">{closeError}</div>
+              )}
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Staff Report <span className="text-gray-400">(summary of this conversation)</span></label>
                 <textarea
@@ -721,7 +743,7 @@ export default function Messaging() {
                 />
               </div>
               <div className="flex gap-2 pt-1">
-                <button onClick={() => setShowCloseModal(false)}
+                <button onClick={() => { setShowCloseModal(false); setCloseError('') }}
                   className="flex-1 py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50">
                   Cancel
                 </button>
