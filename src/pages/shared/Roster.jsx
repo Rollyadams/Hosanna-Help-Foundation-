@@ -45,6 +45,61 @@ function Toggle({ checked, onChange }) {
   )
 }
 
+// Masked HH:MM text input — deliberately avoids the native <input type="time">
+// picker, whose OS-rendered dialog clips its own "Set"/"OK" button off-screen
+// on some Android/Chrome combinations. This gives the same guarantee (only
+// ever produces a valid 24-hour HH:MM value) using a plain text field with
+// input masking instead, so there's no OS dialog that can misrender.
+function TimeInput({ value, onChange, disabled }) {
+  const [text, setText] = useState(value || '')
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing local text with the external `value` prop when it changes (e.g. after save/normalize), same pattern used elsewhere in this codebase
+  useEffect(() => { setText(value || '') }, [value])
+
+  function handleChange(e) {
+    let raw = e.target.value.replace(/[^\d]/g, '') // digits only
+    if (raw.length > 4) raw = raw.slice(0, 4)
+
+    let hh = raw.slice(0, 2)
+    let mm = raw.slice(2, 4)
+
+    // Clamp as the person types so it's never possible to type an invalid hour/minute
+    if (hh.length === 2 && parseInt(hh, 10) > 23) hh = '23'
+    if (mm.length === 2 && parseInt(mm, 10) > 59) mm = '59'
+
+    const formatted = mm.length ? `${hh}:${mm}` : hh
+    setText(formatted)
+  }
+
+  function handleBlur() {
+    const digits = text.replace(/[^\d]/g, '')
+    if (digits.length < 3) {
+      // Incomplete entry — fall back to the last valid value instead of saving junk
+      setText(value || '')
+      return
+    }
+    const hh = digits.slice(0, 2).padStart(2, '0')
+    const mm = digits.slice(2, 4).padEnd(2, '0')
+    const clean = `${Math.min(parseInt(hh, 10), 23).toString().padStart(2, '0')}:${Math.min(parseInt(mm, 10), 59).toString().padStart(2, '0')}`
+    setText(clean)
+    onChange(clean)
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={text}
+      disabled={disabled}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      placeholder="09:00"
+      maxLength={5}
+      className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-50"
+    />
+  )
+}
+
 // ── STAFF ROSTER VIEW ─────────────────────────────────────
 function StaffRoster({ staffId, weekStart, readOnly = false }) {
   const { profile } = useAuth()
@@ -116,12 +171,10 @@ function StaffRoster({ staffId, weekStart, readOnly = false }) {
               {slot.is_available ? (
                 <div className="flex items-center gap-2 flex-1">
                 <div className="flex flex-col gap-1 flex-1">
-                  <input type="time" value={slot.start_time} disabled={readOnly}
-                    onChange={e => updateSlot(key, 'start_time', e.target.value)}
-                    className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-50" />
-                  <input type="time" value={slot.end_time} disabled={readOnly}
-                    onChange={e => updateSlot(key, 'end_time', e.target.value)}
-                    className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-50" />
+                  <TimeInput value={slot.start_time} disabled={readOnly}
+                    onChange={v => updateSlot(key, 'start_time', v)} />
+                  <TimeInput value={slot.end_time} disabled={readOnly}
+                    onChange={v => updateSlot(key, 'end_time', v)} />
                 </div>
                 </div>
               ) : (
