@@ -60,14 +60,22 @@ function groupByDate(msgs) {
 }
 
 // ── DB HELPERS ─────────────────────────────────────────────
+const ONLINE_STALE_AFTER_MS = 90 * 1000 // keep in sync with roster.js / AuthContext.jsx heartbeat window
+
 async function buildSenderMap(ids) {
   if (!ids.length) return {}
+  const staleCutoff = Date.now() - ONLINE_STALE_AFTER_MS
   const [{ data: reg }, { data: guests }] = await Promise.all([
-    supabase.from('hhf_profiles').select('id, full_name, role, online_status').in('id', ids),
+    supabase.from('hhf_profiles').select('id, full_name, role, online_status, last_seen_at').in('id', ids),
     supabase.from('hhf_guest_profiles').select('id, full_name').in('id', ids)
   ])
   const map = {}
-  ;(reg    || []).forEach(s => { map[s.id] = s })
+  ;(reg || []).forEach(s => {
+    // Only show as online if the heartbeat is actually fresh — a stale
+    // online_status flag (e.g. after a crashed tab) no longer counts.
+    const trulyOnline = s.online_status === 'online' && s.last_seen_at && new Date(s.last_seen_at).getTime() > staleCutoff
+    map[s.id] = { ...s, online_status: trulyOnline ? 'online' : 'offline' }
+  })
   ;(guests || []).forEach(s => { map[s.id] = { ...s, role: 'visitor', online_status: 'offline' } })
   return map
 }
@@ -329,7 +337,7 @@ export default function Messaging() {
 
   // ── NEW CONVERSATION ──────────────────────────────────────
   async function loadUsers() {
-    let q = supabase.from('hhf_profiles').select('id, full_name, role, online_status').eq('status', 'active').neq('id', profile.id)
+    let q = supabase.from('hhf_profiles').select('id, full_name, role, online_status, last_seen_at').eq('status', 'active').neq('id', profile.id)
     if (!isAdmin) {
       const { data: a } = await supabase.from('hhf_staff_assignments').select('client_id').eq('staff_id', profile.id)
       const ids = (a || []).map(x => x.client_id)
@@ -337,7 +345,13 @@ export default function Messaging() {
       q = q.in('id', ids)
     }
     const { data } = await q.order('full_name')
-    setUsers(data || [])
+    const staleCutoff = Date.now() - ONLINE_STALE_AFTER_MS
+    const withFreshOnline = (data || []).map(u => ({
+      ...u,
+      online_status: u.online_status === 'online' && u.last_seen_at && new Date(u.last_seen_at).getTime() > staleCutoff
+        ? 'online' : 'offline',
+    }))
+    setUsers(withFreshOnline)
   }
 
   async function startConversation(userId) {
