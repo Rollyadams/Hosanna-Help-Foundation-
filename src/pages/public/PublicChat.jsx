@@ -166,6 +166,7 @@ function ChatWindow({ visitor, convoId }) {
   const [saveErrors, setSaveErrors] = useState({})
   const [saveSubmitting, setSaveSubmitting] = useState(false)
   const [saveDone, setSaveDone] = useState(false)
+  const [convoStatus, setConvoStatus] = useState('active')
   const awayTimerRef  = useRef(null)
   const staffReplied  = useRef(false)
   const bottomRef = useRef(null)
@@ -221,10 +222,30 @@ function ChatWindow({ visitor, convoId }) {
     setHasAccount(!!data?.password_hash)
   }
 
+  async function checkConvoStatus() {
+    const { data } = await supabase
+      .from('hhf_conversations')
+      .select('status')
+      .eq('id', convoId)
+      .maybeSingle()
+    if (data?.status) setConvoStatus(data.status)
+  }
+
   useEffect(() => {
     loadMessages()
     checkStaffOnline()
     checkHasAccount()
+    checkConvoStatus()
+
+    const statusSub = supabase
+      .channel(`public_chat_status_${convoId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'hhf_conversations',
+        filter: `id=eq.${convoId}`
+      }, payload => {
+        if (payload.new?.status) setConvoStatus(payload.new.status)
+      })
+      .subscribe()
 
     const sub = supabase
       .channel(`public_chat_${convoId}`)
@@ -266,6 +287,7 @@ function ChatWindow({ visitor, convoId }) {
 
     return () => {
       supabase.removeChannel(sub)
+      supabase.removeChannel(statusSub)
       if (awayTimerRef.current) clearTimeout(awayTimerRef.current)
     }
   }, [convoId])
@@ -282,7 +304,7 @@ function ChatWindow({ visitor, convoId }) {
 
   async function sendMessage() {
     const body = newMsg.trim()
-    if (!body || sending) return
+    if (!body || sending || convoStatus === 'closed') return
     setSending(true)
     await supabase.from('hhf_messages').insert({
       conversation_id: convoId,
@@ -419,6 +441,17 @@ function ChatWindow({ visitor, convoId }) {
           </button>
         </div>
       </div>
+
+      {/* Persistent reminder to save the conversation — stays available even
+          after the one-time inline prompt is dismissed, so the chance to
+          create login details is never permanently gone. */}
+      {!hasAccount && !showSavePrompt && (
+        <button
+          onClick={() => { setShowSavePrompt(true); setSavePromptDismissed(false) }}
+          className="w-full px-4 py-2 bg-blue-50 border-b border-blue-100 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors flex-shrink-0 text-left">
+          🔒 Create a secure login so you can revisit this chat anytime — Tap to set up
+        </button>
+      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
@@ -613,6 +646,13 @@ function ChatWindow({ visitor, convoId }) {
       )}
 
       {/* Input */}
+      {convoStatus === 'closed' ? (
+        <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex-shrink-0 text-center">
+          <p className="text-sm text-gray-500">
+            This conversation has been closed by our team. Start a new conversation if you need further help.
+          </p>
+        </div>
+      ) : (
       <div className="px-3 py-3 bg-white border-t border-gray-100 flex-shrink-0 flex items-end gap-2">
         <input
           type="file" accept="image/*,.pdf,.doc,.docx"
@@ -659,6 +699,7 @@ function ChatWindow({ visitor, convoId }) {
           }
         </button>
       </div>
+      )}
 
       <div className="text-center py-2 bg-white border-t border-gray-50">
         <span className="text-xs text-gray-300">Powered by </span>
