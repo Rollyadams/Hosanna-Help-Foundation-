@@ -202,11 +202,13 @@ function ChatWindow({ visitor, convoId }) {
   }
 
   async function checkStaffOnline() {
+    const staleCutoff = new Date(Date.now() - 90 * 1000).toISOString()
     const { data } = await supabase
       .from('hhf_profiles')
       .select('id')
       .in('role', ['admin', 'staff'])
       .eq('online_status', 'online')
+      .gte('last_seen_at', staleCutoff)
       .limit(1)
     setStaffOnline((data?.length || 0) > 0)
   }
