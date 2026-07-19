@@ -75,14 +75,20 @@ function StaffRoster({ staffId, weekStart, readOnly = false }) {
     setSlots(s => ({ ...s, [day]: { ...s[day], [field]: value } }))
   }
 
+  const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/
+
+  function normalizeTime(value, fallback) {
+    return TIME_RE.test(value) ? value : fallback
+  }
+
   async function save() {
     setSaving(true)
     const rows = DAYS.map(d => ({
       staff_id:     staffId,
       week_start:   weekStart,
       day:          d.key,
-      start_time:   slots[d.key]?.start_time || '09:00',
-      end_time:     slots[d.key]?.end_time   || '17:00',
+      start_time:   normalizeTime(slots[d.key]?.start_time, '09:00'),
+      end_time:     normalizeTime(slots[d.key]?.end_time, '17:00'),
       is_available: slots[d.key]?.is_available ?? true,
       note:         slots[d.key]?.note || null,
       created_by:   profile.id,
@@ -110,13 +116,11 @@ function StaffRoster({ staffId, weekStart, readOnly = false }) {
               {slot.is_available ? (
                 <div className="flex items-center gap-2 flex-1">
                 <div className="flex flex-col gap-1 flex-1">
-                  <input type="text" value={slot.start_time} disabled={readOnly}
+                  <input type="time" value={slot.start_time} disabled={readOnly}
                     onChange={e => updateSlot(key, 'start_time', e.target.value)}
-                    placeholder="09:00"
                     className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-50" />
-                  <input type="text" value={slot.end_time} disabled={readOnly}
+                  <input type="time" value={slot.end_time} disabled={readOnly}
                     onChange={e => updateSlot(key, 'end_time', e.target.value)}
-                    placeholder="17:00"
                     className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-50" />
                 </div>
                 </div>
