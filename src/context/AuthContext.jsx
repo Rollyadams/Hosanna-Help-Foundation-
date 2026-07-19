@@ -3,11 +3,20 @@ import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext(null)
 
+// A staff member is only ever considered "online" if their last_seen_at
+// heartbeat is more recent than this window. This means a crashed browser,
+// force-closed app, or dead connection naturally "goes offline" on its own
+// within this window — no reliance on pagehide/visibilitychange actually
+// firing, which they don't always do.
+export const HEARTBEAT_INTERVAL_MS = 45 * 1000       // how often we write a heartbeat
+export const ONLINE_STALE_AFTER_MS  = 90 * 1000       // how old a heartbeat can be before we treat them as offline
+
 export function AuthProvider({ children }) {
   const [user,    setUser]    = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const fetchProfileRequestId = useRef(0)
+  const heartbeatRef = useRef(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -40,36 +49,46 @@ export function AuthProvider({ children }) {
     if (!error) setProfile(data)
     setLoading(false)
 
-    // Mark staff/admin online the moment their profile loads (i.e. right
-    // after login or app open) — nothing else in the codebase was doing
-    // this, which meant `online_status` never actually reflected reality.
+    // Mark staff/admin online and stamp a fresh heartbeat the moment their
+    // profile loads (i.e. right after login or app open).
     if (!error && (data?.role === 'staff' || data?.role === 'admin')) {
-      supabase.from('hhf_profiles').update({ online_status: 'online' }).eq('id', userId).then(() => {})
+      supabase.from('hhf_profiles')
+        .update({ online_status: 'online', last_seen_at: new Date().toISOString() })
+        .eq('id', userId).then(() => {})
     }
   }
 
-  // Best-effort: mark offline when the tab/app is closed or backgrounded for
-  // good. This can't be 100% reliable (a crashed browser won't fire this),
-  // so roster.js's availability check should be treated as "likely online",
-  // not an absolute guarantee — but this covers the common close/logout case.
+  // Heartbeat: while a staff/admin has this tab open, refresh last_seen_at
+  // on an interval. Availability is judged elsewhere (see roster.js) by how
+  // recent this timestamp is, not by a boolean flag alone — so if the
+  // heartbeat simply stops (crash, force-close, dead network), that staff
+  // member is automatically treated as offline within ONLINE_STALE_AFTER_MS,
+  // with no dependency on a close/unload event ever firing.
   useEffect(() => {
     if (!user || (profile?.role !== 'staff' && profile?.role !== 'admin')) return
 
+    function sendHeartbeat() {
+      if (document.visibilityState === 'hidden') return // don't renew while backgrounded
+      supabase.from('hhf_profiles')
+        .update({ online_status: 'online', last_seen_at: new Date().toISOString() })
+        .eq('id', user.id).then(() => {})
+    }
+
     function markOffline() {
-      // navigator.sendBeacon-style fire-and-forget update; supabase-js doesn't
-      // expose sendBeacon directly, so we just fire the request without
-      // awaiting it, since the page may unload before it resolves.
       supabase.from('hhf_profiles').update({ online_status: 'offline' }).eq('id', user.id).then(() => {})
     }
 
+    sendHeartbeat() // immediate heartbeat on mount, then on the interval below
+    heartbeatRef.current = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS)
+
     function handleVisibility() {
-      if (document.visibilityState === 'hidden') markOffline()
-      else supabase.from('hhf_profiles').update({ online_status: 'online' }).eq('id', user.id).then(() => {})
+      if (document.visibilityState === 'visible') sendHeartbeat()
     }
 
     window.addEventListener('pagehide', markOffline)
     document.addEventListener('visibilitychange', handleVisibility)
     return () => {
+      clearInterval(heartbeatRef.current)
       window.removeEventListener('pagehide', markOffline)
       document.removeEventListener('visibilitychange', handleVisibility)
     }
@@ -97,6 +116,7 @@ export function AuthProvider({ children }) {
   }
 
   async function signOut() {
+    if (heartbeatRef.current) clearInterval(heartbeatRef.current)
     if (user && (profile?.role === 'staff' || profile?.role === 'admin')) {
       await supabase.from('hhf_profiles').update({ online_status: 'offline' }).eq('id', user.id)
     }
