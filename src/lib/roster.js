@@ -4,6 +4,14 @@ import { supabase } from './supabase'
 export const ESCALATION_MINUTES = 5 // time before an unclaimed/unanswered chat reassigns
 export const AWAY_MESSAGE_MINUTES = 5 // time before visitor gets an away message if nobody has responded at all
 
+// A staff member's `online_status` flag is only trusted if their last
+// heartbeat (last_seen_at, written every ~45s by AuthContext while their tab
+// is open) is more recent than this window. This means a crashed browser or
+// force-closed app naturally drops out of "available" here without needing
+// any close/unload event to have fired — the flag alone is not enough, since
+// nothing guarantees it gets flipped back to 'offline' on an ungraceful exit.
+const ONLINE_STALE_AFTER_MS = 90 * 1000
+
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
 
 function currentDayKey(date = new Date()) {
@@ -40,11 +48,12 @@ function isAwayNow(availability, now = new Date()) {
 
 /**
  * Returns the list of staff/admin profile ids who are genuinely available
- * right now: active account, online, not marked away, within working hours,
- * and not on a blocked date.
+ * right now: active account, online with a fresh heartbeat, not marked
+ * away, within working hours, and not on a blocked date.
  */
 export async function getAvailableStaffIds() {
   const now = new Date()
+  const staleCutoff = new Date(now.getTime() - ONLINE_STALE_AFTER_MS).toISOString()
 
   const { data: profiles, error: profErr } = await supabase
     .from('hhf_profiles')
@@ -52,6 +61,7 @@ export async function getAvailableStaffIds() {
     .in('role', ['admin', 'staff'])
     .eq('status', 'active')
     .eq('online_status', 'online')
+    .gte('last_seen_at', staleCutoff)
 
   if (profErr || !profiles?.length) return []
 
