@@ -23,7 +23,7 @@ function ReadTick({ status, mine }) {
 function VisitorForm({ onStart, onReturn }) {
   const [mode, setMode]   = useState('new')
   const [form, setForm]   = useState({ name: '', category: '', message: '' })
-  const CATEGORIES = ['General Inquiry', 'Medical Assistance', 'Education Support', 'Shelter / Housing', 'Food Assistance', 'Counseling', 'Other']
+  const CATEGORIES = ['General Inquiry', 'Medical Assistance', 'Education Support', 'Food Assistance', 'Counseling', 'Other']
   const [ret, setRet]     = useState({ phone: '', password: '' })
   const [errors, setErrors] = useState({})
   const [retError, setRetError] = useState('')
