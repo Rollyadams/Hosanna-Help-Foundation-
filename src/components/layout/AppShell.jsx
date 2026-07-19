@@ -45,12 +45,36 @@ const icons = {
   clock:    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
 }
 
+// A persistent AudioContext, created once and reused. Browsers block audio
+// from playing until the page has seen at least one user gesture (a click,
+// tap, or keypress) — before that, creating oscillators produces no sound
+// at all, with no error thrown, which is why the alert could go completely
+// silent even with the tab open and staff present. We create the context
+// eagerly and "resume" it on the very first interaction anywhere on the
+// page, so it's already unlocked by the time a real alert needs to fire.
+let sharedAudioCtx = null
+function getAudioCtx() {
+  if (sharedAudioCtx) return sharedAudioCtx
+  const Ctx = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext)
+  if (!Ctx) return null
+  sharedAudioCtx = new Ctx()
+  return sharedAudioCtx
+}
+
+function unlockAudio() {
+  const ctx = getAudioCtx()
+  if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {})
+}
+
 // A short, generated "ring" tone — no external audio file needed.
 function playAlertTone() {
   try {
-    const Ctx = window.AudioContext || window.webkitAudioContext
-    if (!Ctx) return
-    const ctx = new Ctx()
+    const ctx = getAudioCtx()
+    if (!ctx) return
+    // If the context is still suspended (no interaction has unlocked it
+    // yet), try to resume it right now as a last-ditch effort — this can
+    // still fail silently per browser policy, but costs nothing to try.
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {})
     const beep = (freq, start, duration) => {
       const osc = ctx.createOscillator()
       const gain = ctx.createGain()
@@ -84,6 +108,24 @@ export default function AppShell({ children }) {
 
   const items = navItems[profile?.role] || []
   const initials = profile?.full_name?.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase() || '??'
+
+  // Unlock audio on the very first interaction anywhere in the app, so the
+  // alert tone actually has a chance to play by the time a real
+  // notification arrives — without this, a staff member who never clicks
+  // anything (just watches the tab) could get zero sound with no warning.
+  useEffect(() => {
+    function unlock() {
+      unlockAudio()
+      window.removeEventListener('pointerdown', unlock)
+      window.removeEventListener('keydown', unlock)
+    }
+    window.addEventListener('pointerdown', unlock)
+    window.addEventListener('keydown', unlock)
+    return () => {
+      window.removeEventListener('pointerdown', unlock)
+      window.removeEventListener('keydown', unlock)
+    }
+  }, [])
 
   async function handleSignOut() {
     await signOut()
