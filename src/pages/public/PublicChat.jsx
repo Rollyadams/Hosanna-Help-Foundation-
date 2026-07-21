@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import bcrypt from 'bcryptjs'
 import { supabase } from '../../lib/supabase'
 import { assignStaffForNewConversation, notifyStaffOfConversation, escalateConversation, AWAY_MESSAGE_MINUTES } from '../../lib/roster'
+import { joinConversationPresence, leaveConversationPresence, broadcastTyping, isViewerPresent } from '../../lib/presence'
 
 function timeStr(ts) {
   return new Date(ts).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })
@@ -167,6 +168,11 @@ function ChatWindow({ visitor, convoId }) {
   const [saveSubmitting, setSaveSubmitting] = useState(false)
   const [saveDone, setSaveDone] = useState(false)
   const [convoStatus, setConvoStatus] = useState('active')
+  const [assignedStaffId, setAssignedStaffId] = useState(null)
+  const [staffTyping, setStaffTyping] = useState(false)
+  const presenceChannelRef = useRef(null)
+  const typingTimeoutRef   = useRef(null)
+  const stopTypingTimeoutRef = useRef(null)
   const awayTimerRef  = useRef(null)
   const staffReplied  = useRef(false)
   const bottomRef = useRef(null)
@@ -227,10 +233,14 @@ function ChatWindow({ visitor, convoId }) {
   async function checkConvoStatus() {
     const { data } = await supabase
       .from('hhf_conversations')
-      .select('status')
+      .select('status, assigned_staff_id, participant_a, participant_b')
       .eq('id', convoId)
       .maybeSingle()
     if (data?.status) setConvoStatus(data.status)
+    // Fall back to whichever participant isn't the visitor, in case an
+    // older conversation was never given an assigned_staff_id.
+    const fallbackStaffId = data?.participant_a === visitorRef.current.id ? data?.participant_b : data?.participant_a
+    setAssignedStaffId(data?.assigned_staff_id || fallbackStaffId || null)
   }
 
   useEffect(() => {
@@ -246,6 +256,7 @@ function ChatWindow({ visitor, convoId }) {
         filter: `id=eq.${convoId}`
       }, payload => {
         if (payload.new?.status) setConvoStatus(payload.new.status)
+        if (payload.new?.assigned_staff_id) setAssignedStaffId(payload.new.assigned_staff_id)
       })
       .subscribe()
 
@@ -294,6 +305,34 @@ function ChatWindow({ visitor, convoId }) {
     }
   }, [convoId])
 
+  // ── PRESENCE: join this conversation's presence channel while it's open
+  // on screen, so staff can suppress redundant notifications when they
+  // already have this exact chat open, and so we can show a "staff is
+  // typing" indicator.
+  useEffect(() => {
+    const channel = joinConversationPresence(
+      convoId,
+      { id: visitorRef.current.id, role: 'visitor' },
+      {
+        onTyping: ({ role, typing }) => {
+          if (role !== 'staff') return
+          setStaffTyping(typing)
+          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+          if (typing) {
+            typingTimeoutRef.current = setTimeout(() => setStaffTyping(false), 4000)
+          }
+        },
+      }
+    )
+    presenceChannelRef.current = channel
+
+    return () => {
+      leaveConversationPresence(channel)
+      presenceChannelRef.current = null
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+    }
+  }, [convoId])
+
   // Once the visitor has sent a few messages, gently offer to save the
   // conversation so they can pick it back up later — instead of asking for
   // a password up front before they've even gotten help.
@@ -317,6 +356,30 @@ function ChatWindow({ visitor, convoId }) {
     setNewMsg('')
     textRef.current?.focus()
     setSending(false)
+
+    if (stopTypingTimeoutRef.current) clearTimeout(stopTypingTimeoutRef.current)
+    broadcastTyping(presenceChannelRef.current, { id: visitor.id, role: 'visitor' }, false)
+
+    // Every visitor message should notify the assigned staff member — not
+    // just the first one that created the conversation. Previously only
+    // the initial message triggered a notification (in handleStart), so
+    // any follow-up message from the visitor went completely unnoticed by
+    // staff unless they happened to already have the chat open.
+    //
+    // Exception: if the assigned staff member is *already looking at this
+    // exact conversation* (confirmed via presence), skip the notification —
+    // they'll see the message arrive live in the thread, and a bell/badge
+    // on top of that would just be redundant noise, not real WhatsApp/
+    // Messenger-style behavior.
+    const staffAlreadyPresent = isViewerPresent(presenceChannelRef.current, assignedStaffId)
+    if (assignedStaffId && !staffAlreadyPresent) {
+      await notifyStaffOfConversation({
+        staffId: assignedStaffId,
+        title: `${visitor.full_name || 'Visitor'} sent a new message`,
+        body,
+        convoId,
+      })
+    }
 
     // Start away/escalation timer on first visitor message (if staff hasn't replied yet)
     if (!staffReplied.current && !awayTimerRef.current) {
@@ -362,6 +425,16 @@ function ChatWindow({ visitor, convoId }) {
 
   function handleKey(e) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() }
+  }
+
+  function handleTypingChange(e) {
+    setNewMsg(e.target.value)
+    if (!presenceChannelRef.current) return
+    broadcastTyping(presenceChannelRef.current, { id: visitor.id, role: 'visitor' }, true)
+    if (stopTypingTimeoutRef.current) clearTimeout(stopTypingTimeoutRef.current)
+    stopTypingTimeoutRef.current = setTimeout(() => {
+      broadcastTyping(presenceChannelRef.current, { id: visitor.id, role: 'visitor' }, false)
+    }, 2000)
   }
 
   function updSaveForm(e) {
@@ -647,6 +720,17 @@ function ChatWindow({ visitor, convoId }) {
         </div>
       )}
 
+      {staffTyping && convoStatus !== 'closed' && (
+        <div className="px-4 py-1.5 text-xs text-gray-400 flex-shrink-0 flex items-center gap-1.5">
+          <span className="flex gap-0.5">
+            <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+            <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+            <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+          </span>
+          Typing…
+        </div>
+      )}
+
       {/* Input */}
       {convoStatus === 'closed' ? (
         <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex-shrink-0 text-center">
@@ -684,7 +768,7 @@ function ChatWindow({ visitor, convoId }) {
             <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
           </svg>
         </button>
-        <textarea ref={textRef} value={newMsg} onChange={e => setNewMsg(e.target.value)}
+        <textarea ref={textRef} value={newMsg} onChange={handleTypingChange}
           onKeyDown={handleKey} rows={1} placeholder="Type your message..."
           className="flex-1 resize-none px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-blue-500 transition-colors"
           style={{ minHeight: '40px', maxHeight: '100px' }}
