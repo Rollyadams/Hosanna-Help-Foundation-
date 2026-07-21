@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
 import AppShell from '../../components/layout/AppShell'
+import { joinConversationPresence, leaveConversationPresence, broadcastTyping } from '../../lib/presence'
 
 // ── HELPERS ────────────────────────────────────────────────
 function timeAgo(ts) {
@@ -97,6 +98,9 @@ export default function Messaging() {
   const [closeReport, setCloseReport]     = useState({ staff_report: '', follow_up: '' })
   const [closingSaving, setClosingSaving] = useState(false)
   const [closeError, setCloseError]       = useState('')
+  const [visitorTyping, setVisitorTyping] = useState(false)
+  const presenceChannelRef = useRef(null)
+  const typingTimeoutRef   = useRef(null)
   const [messages, setMessages]           = useState([])
   const [newMessage, setNewMessage]       = useState('')
   const [sending, setSending]             = useState(false)
@@ -294,6 +298,39 @@ export default function Messaging() {
     return () => supabase.removeChannel(sub)
   }, [activeConvo?.id])
 
+  // ── PRESENCE: join this conversation's presence channel while it's open
+  // on screen, so the visitor side can suppress redundant notifications and
+  // so we can show a typing indicator when the visitor is composing.
+  useEffect(() => {
+    if (!activeConvo || !profile) return
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting typing state when switching to a newly-opened conversation, same pattern used elsewhere in this file
+    setVisitorTyping(false)
+    const channel = joinConversationPresence(
+      activeConvo.id,
+      { id: profile.id, role: 'staff' },
+      {
+        onTyping: ({ role, typing }) => {
+          if (role !== 'visitor') return
+          setVisitorTyping(typing)
+          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+          if (typing) {
+            // Safety expiry in case a "stopped typing" event is ever missed
+            typingTimeoutRef.current = setTimeout(() => setVisitorTyping(false), 4000)
+          }
+        },
+      }
+    )
+    presenceChannelRef.current = channel
+
+    return () => {
+      leaveConversationPresence(channel)
+      presenceChannelRef.current = null
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+      setVisitorTyping(false)
+    }
+  }, [activeConvo?.id, profile])
+
   // ── CLEANUP ON UNMOUNT ────────────────────────────────────
   useEffect(() => () => stopPolling(), [])
 
@@ -302,6 +339,8 @@ export default function Messaging() {
     const body = newMessage.trim()
     if (!body || !activeConvo || sending || activeConvo.status === 'closed') return
     setSending(true)
+    if (stopTypingTimeoutRef.current) clearTimeout(stopTypingTimeoutRef.current)
+    if (presenceChannelRef.current) broadcastTyping(presenceChannelRef.current, { id: profile.id, role: 'staff' }, false)
     await supabase.from('hhf_messages').insert({
       conversation_id: activeConvo.id,
       sender_id: profile.id,
@@ -370,6 +409,17 @@ export default function Messaging() {
   }
 
   function handleKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }
+
+  const stopTypingTimeoutRef = useRef(null)
+  function handleTypingChange(e) {
+    setNewMessage(e.target.value)
+    if (!profile || !presenceChannelRef.current) return
+    broadcastTyping(presenceChannelRef.current, { id: profile.id, role: 'staff' }, true)
+    if (stopTypingTimeoutRef.current) clearTimeout(stopTypingTimeoutRef.current)
+    stopTypingTimeoutRef.current = setTimeout(() => {
+      broadcastTyping(presenceChannelRef.current, { id: profile.id, role: 'staff' }, false)
+    }, 2000)
+  }
 
   // ── QUEUE ACTIONS ─────────────────────────────────────────
   async function setPriority(convoId, priority) {
@@ -610,6 +660,17 @@ export default function Messaging() {
               <div ref={bottomRef} />
             </div>
 
+            {visitorTyping && activeConvo?.status !== 'closed' && (
+              <div className="px-4 py-1.5 text-xs text-gray-400 flex-shrink-0 flex items-center gap-1.5">
+                <span className="flex gap-0.5">
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </span>
+                {activeConvo?.other?.full_name || 'Visitor'} is typing…
+              </div>
+            )}
+
             {activeConvo?.status === 'closed' ? (
               <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 flex-shrink-0 text-center">
                 <p className="text-sm text-gray-500">
@@ -629,7 +690,7 @@ export default function Messaging() {
                   }
                 </button>
                 <input ref={fileRef} type="file" className="hidden" accept="image/*,.pdf,.doc,.docx" onChange={handleFileUpload} />
-                <textarea ref={textRef} value={newMessage} onChange={e => setNewMessage(e.target.value)}
+                <textarea ref={textRef} value={newMessage} onChange={handleTypingChange}
                   onKeyDown={handleKey} rows={1} placeholder="Type a message... (Enter to send)"
                   className="flex-1 resize-none px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-hhf-blue max-h-28"
                   style={{ minHeight: '40px' }}
