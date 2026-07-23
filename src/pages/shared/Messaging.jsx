@@ -99,6 +99,7 @@ export default function Messaging() {
   const [closingSaving, setClosingSaving] = useState(false)
   const [closeError, setCloseError]       = useState('')
   const [visitorTyping, setVisitorTyping] = useState(false)
+  const [visitorPresent, setVisitorPresent] = useState(false)
   const presenceChannelRef = useRef(null)
   const typingTimeoutRef   = useRef(null)
   const [messages, setMessages]           = useState([])
@@ -299,17 +300,27 @@ export default function Messaging() {
   }, [activeConvo?.id])
 
   // ── PRESENCE: join this conversation's presence channel while it's open
-  // on screen, so the visitor side can suppress redundant notifications and
-  // so we can show a typing indicator when the visitor is composing.
+  // on screen, so the visitor side can suppress redundant notifications,
+  // so we can show a typing indicator when the visitor is composing, and
+  // so we can show an accurate "online" state for the visitor — guest
+  // profiles don't have a maintained online_status column the way staff
+  // do (no heartbeat is written for anonymous visitors), so presence in
+  // this specific conversation is the only real signal of whether they're
+  // actually here right now.
   useEffect(() => {
     if (!activeConvo || !profile) return
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting typing state when switching to a newly-opened conversation, same pattern used elsewhere in this file
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting typing/presence state when switching to a newly-opened conversation, same pattern used elsewhere in this file
     setVisitorTyping(false)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see above
+    setVisitorPresent(false)
     const channel = joinConversationPresence(
       activeConvo.id,
       { id: profile.id, role: 'staff' },
       {
+        onPresenceChange: viewers => {
+          setVisitorPresent(viewers.some(v => v.role === 'visitor'))
+        },
         onTyping: ({ role, typing }) => {
           if (role !== 'visitor') return
           setVisitorTyping(typing)
@@ -328,6 +339,7 @@ export default function Messaging() {
       presenceChannelRef.current = null
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
       setVisitorTyping(false)
+      setVisitorPresent(false)
     }
   }, [activeConvo?.id, profile])
 
@@ -565,11 +577,13 @@ export default function Messaging() {
                 onClick={() => { setActiveConvo(null); stopPolling(); window.history.replaceState(null, '', '?') }}>
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
               </button>
-              <Avatar name={otherUser?.full_name} id={otherUser?.id || ''} online={otherUser?.online_status === 'online'} />
+              <Avatar name={otherUser?.full_name} id={otherUser?.id || ''} online={otherUser?.role === 'visitor' ? visitorPresent : otherUser?.online_status === 'online'} />
               <div className="flex-1 min-w-0">
                 <div className="font-semibold text-sm text-gray-900">{otherUser?.full_name}</div>
-                <div className={`text-xs ${otherUser?.online_status === 'online' ? 'text-green-500' : 'text-gray-400'}`}>
-                  {otherUser?.online_status === 'online' ? '● Online' : '○ Offline'}
+                <div className={`text-xs ${(otherUser?.role === 'visitor' ? visitorPresent : otherUser?.online_status === 'online') ? 'text-green-500' : 'text-gray-400'}`}>
+                  {otherUser?.role === 'visitor'
+                    ? (visitorPresent ? '● In this chat' : '○ Not currently viewing')
+                    : (otherUser?.online_status === 'online' ? '● Online' : '○ Offline')}
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
@@ -667,7 +681,7 @@ export default function Messaging() {
                   <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                   <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                 </span>
-                {activeConvo?.other?.full_name || 'Visitor'} is typing…
+                {(activeConvo?.other?.full_name && activeConvo.other.full_name !== 'Anonymous') ? activeConvo.other.full_name : 'Visitor'} is typing…
               </div>
             )}
 
