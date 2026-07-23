@@ -61,20 +61,36 @@ function getAudioCtx() {
   return sharedAudioCtx
 }
 
+// Temporary debug hook — the AppShell component below sets this so
+// playAlertTone (a module-level function, outside the component) can report
+// what's happening without needing prop drilling. Safe to remove once the
+// sound bug is found and fixed.
+let debugLogHook = null
+
 function unlockAudio() {
   const ctx = getAudioCtx()
-  if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {})
+  debugLogHook?.(`unlockAudio(): ctx=${ctx ? 'exists' : 'NULL (AudioContext unsupported?)'}, state=${ctx?.state}`)
+  if (ctx && ctx.state === 'suspended') {
+    ctx.resume()
+      .then(() => debugLogHook?.(`ctx.resume() succeeded, new state=${ctx.state}`))
+      .catch(err => debugLogHook?.(`ctx.resume() FAILED: ${err.message}`))
+  }
 }
 
 // A short, generated "ring" tone — no external audio file needed.
 function playAlertTone() {
   try {
     const ctx = getAudioCtx()
-    if (!ctx) return
+    if (!ctx) { debugLogHook?.('playAlertTone: getAudioCtx() returned NULL — AudioContext not supported in this browser'); return }
+    debugLogHook?.(`playAlertTone: ctx.state=${ctx.state}`)
     // If the context is still suspended (no interaction has unlocked it
     // yet), try to resume it right now as a last-ditch effort — this can
     // still fail silently per browser policy, but costs nothing to try.
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {})
+    if (ctx.state === 'suspended') {
+      ctx.resume()
+        .then(() => debugLogHook?.('playAlertTone: late resume() succeeded'))
+        .catch(err => debugLogHook?.(`playAlertTone: late resume() FAILED: ${err.message}`))
+    }
     const beep = (freq, start, duration) => {
       const osc = ctx.createOscillator()
       const gain = ctx.createGain()
@@ -90,10 +106,12 @@ function playAlertTone() {
     }
     beep(880, 0, 0.15)
     beep(660, 0.18, 0.15)
-  } catch {
-    /* audio not available — fail silently */
+    debugLogHook?.('playAlertTone: oscillators scheduled successfully')
+  } catch (err) {
+    debugLogHook?.(`playAlertTone: THREW an error: ${err.message}`)
   }
 }
+
 
 export default function AppShell({ children }) {
   const { profile, signOut } = useAuth()
@@ -106,6 +124,23 @@ export default function AppShell({ children }) {
   const titleFlashRef = useRef(null)
   const repeatAlertRef = useRef(null)
 
+  // ── TEMPORARY DEBUG PANEL ─────────────────────────────────
+  // Visible, on-screen log for diagnosing the "no sound" issue without
+  // needing desktop DevTools. Safe to delete this whole block (and the
+  // <DebugPanel /> render below) once the bug is found and fixed.
+  const [debugLog, setDebugLog] = useState([])
+  const [debugOpen, setDebugOpen] = useState(false)
+  function logDebug(msg) {
+    const line = `${new Date().toLocaleTimeString()} — ${msg}`
+    console.log('[HHF DEBUG]', line)
+    setDebugLog(prev => [...prev.slice(-29), line])
+  }
+
+  useEffect(() => {
+    debugLogHook = logDebug
+    return () => { debugLogHook = null }
+  })
+
   const items = navItems[profile?.role] || []
   const initials = profile?.full_name?.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase() || '??'
 
@@ -115,6 +150,7 @@ export default function AppShell({ children }) {
   // anything (just watches the tab) could get zero sound with no warning.
   useEffect(() => {
     function unlock() {
+      logDebug('First interaction detected — calling unlockAudio()')
       unlockAudio()
       window.removeEventListener('pointerdown', unlock)
       window.removeEventListener('keydown', unlock)
@@ -226,6 +262,9 @@ export default function AppShell({ children }) {
   useEffect(() => {
     if (!profile?.id) return
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- temporary debug logging, safe to remove along with the rest of this debug panel
+    logDebug(`Setting up realtime subscription for recipient_id=${profile.id}`)
+
     const channel = supabase
       .channel(`appshell_notifications_${profile.id}`)
       .on('postgres_changes', {
@@ -234,12 +273,14 @@ export default function AppShell({ children }) {
         table: 'hhf_notifications',
         filter: `recipient_id=eq.${profile.id}`,
       }, payload => {
+        logDebug(`✅ Realtime event RECEIVED: "${payload.new?.title}"`)
         setUnreadCount(prev => prev + 1)
         playAlertTone()
 
         // If they're not even looking at this tab, escalate: flash the
         // title and keep re-playing the tone until they come back.
         if (document.visibilityState === 'hidden') {
+          logDebug('Tab hidden — starting title flash + repeating alert')
           startTitleFlash(`🔴 New message — ${originalTitleRef.current}`)
           startRepeatingAlert()
         }
@@ -250,12 +291,16 @@ export default function AppShell({ children }) {
               body: payload.new.body || 'You have a new notification.',
               icon: '/favicon.svg',
             })
-          } catch {
-            /* ignore */
+          } catch (err) {
+            logDebug(`Browser Notification failed: ${err.message}`)
           }
+        } else {
+          logDebug(`Browser Notification permission: ${typeof Notification !== 'undefined' ? Notification.permission : 'Notification API unavailable'}`)
         }
       })
-      .subscribe()
+      .subscribe((status, err) => {
+        logDebug(`Subscribe status: ${status}${err ? ' — ERROR: ' + err.message : ''}`)
+      })
 
     return () => supabase.removeChannel(channel)
   }, [profile?.id])
@@ -325,6 +370,28 @@ export default function AppShell({ children }) {
           {children}
         </main>
       </div>
+
+      {/* ── TEMPORARY DEBUG PANEL — delete this whole block once the sound
+          bug is fixed. Floating button bottom-right; tap to expand a log
+          of what the notification/audio system is actually doing. */}
+      <button
+        onClick={() => setDebugOpen(o => !o)}
+        className="fixed bottom-4 right-4 z-50 w-11 h-11 rounded-full bg-gray-900 text-white text-xs font-bold flex items-center justify-center shadow-lg"
+        style={{ opacity: 0.85 }}>
+        {debugOpen ? '✕' : 'DBG'}
+      </button>
+      {debugOpen && (
+        <div className="fixed bottom-16 right-4 z-50 w-[92vw] max-w-md max-h-[60vh] bg-gray-900 text-green-400 text-[11px] font-mono rounded-lg shadow-2xl overflow-y-auto p-3">
+          <div className="flex justify-between items-center mb-2 text-white text-xs font-sans font-bold">
+            <span>Debug Log ({debugLog.length})</span>
+            <button onClick={() => setDebugLog([])} className="text-gray-400 underline">clear</button>
+          </div>
+          {debugLog.length === 0 && <div className="text-gray-500">No events yet. Waiting…</div>}
+          {debugLog.map((line, i) => (
+            <div key={i} className="border-b border-gray-800 py-1 break-words">{line}</div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
