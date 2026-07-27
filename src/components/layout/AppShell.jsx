@@ -67,30 +67,47 @@ function getAudioCtx() {
 // sound bug is found and fixed.
 let debugLogHook = null
 
-function unlockAudio() {
+async function unlockAudio() {
   const ctx = getAudioCtx()
   debugLogHook?.(`unlockAudio(): ctx=${ctx ? 'exists' : 'NULL (AudioContext unsupported?)'}, state=${ctx?.state}`)
   if (ctx && ctx.state === 'suspended') {
-    ctx.resume()
-      .then(() => debugLogHook?.(`ctx.resume() succeeded, new state=${ctx.state}`))
-      .catch(err => debugLogHook?.(`ctx.resume() FAILED: ${err.message}`))
+    try {
+      await ctx.resume()
+      debugLogHook?.(`ctx.resume() succeeded, new state=${ctx.state}`)
+    } catch (err) {
+      debugLogHook?.(`ctx.resume() FAILED: ${err.message}`)
+    }
   }
 }
 
 // A short, generated "ring" tone — no external audio file needed.
-function playAlertTone() {
+async function playAlertTone() {
   try {
     const ctx = getAudioCtx()
     if (!ctx) { debugLogHook?.('playAlertTone: getAudioCtx() returned NULL — AudioContext not supported in this browser'); return }
     debugLogHook?.(`playAlertTone: ctx.state=${ctx.state}`)
-    // If the context is still suspended (no interaction has unlocked it
-    // yet), try to resume it right now as a last-ditch effort — this can
-    // still fail silently per browser policy, but costs nothing to try.
+
+    // Critical fix: on mobile Chrome/Safari, calling ctx.resume() and then
+    // immediately scheduling oscillators (without waiting for resume to
+    // actually finish) causes the scheduled sound to be silently dropped —
+    // no error, just silence. We must await the resume before scheduling
+    // anything, since ctx.currentTime only starts advancing correctly
+    // again once the context is actually running.
     if (ctx.state === 'suspended') {
-      ctx.resume()
-        .then(() => debugLogHook?.('playAlertTone: late resume() succeeded'))
-        .catch(err => debugLogHook?.(`playAlertTone: late resume() FAILED: ${err.message}`))
+      try {
+        await ctx.resume()
+        debugLogHook?.(`playAlertTone: resume() completed, state now=${ctx.state}`)
+      } catch (err) {
+        debugLogHook?.(`playAlertTone: resume() FAILED: ${err.message}`)
+        return
+      }
     }
+
+    if (ctx.state !== 'running') {
+      debugLogHook?.(`playAlertTone: ctx still not running (state=${ctx.state}) — skipping, sound would be silently dropped`)
+      return
+    }
+
     const beep = (freq, start, duration) => {
       const osc = ctx.createOscillator()
       const gain = ctx.createGain()
@@ -217,12 +234,18 @@ export default function AppShell({ children }) {
   }
 
   // The moment the tab is back in focus, treat it as "seen" — stop
-  // flashing the title and stop repeating the alert tone.
+  // flashing the title and stop repeating the alert tone. Also proactively
+  // re-resume the AudioContext here: mobile browsers commonly re-suspend
+  // it after the tab is backgrounded, even once it was already unlocked —
+  // this was the actual root cause of alerts going silent (confirmed via
+  // the debug panel showing ctx.state flip from "running" back to
+  // "suspended" between sessions).
   useEffect(() => {
     function handleVisibility() {
       if (document.visibilityState === 'visible') {
         stopTitleFlash()
         stopRepeatingAlert()
+        unlockAudio()
       }
     }
     document.addEventListener('visibilitychange', handleVisibility)
@@ -244,6 +267,10 @@ export default function AppShell({ children }) {
     return () => window.removeEventListener('hhf:notifications-changed', handler)
   }, [loadUnreadCount])
 
+  const [notifPermission, setNotifPermission] = useState(
+    typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
+  )
+
   // Ask for browser notification permission once, only for staff/admin roles
   // who actually need to be alerted about incoming chats.
   useEffect(() => {
@@ -252,7 +279,7 @@ export default function AppShell({ children }) {
     if (notifPermissionAsked.current) return
     notifPermissionAsked.current = true
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => {})
+      Notification.requestPermission().then(setNotifPermission).catch(() => {})
     }
   }, [profile])
 
@@ -365,6 +392,23 @@ export default function AppShell({ children }) {
             )}
           </Link>
         </header>
+
+        {(profile?.role === 'admin' || profile?.role === 'staff') && notifPermission !== 'granted' && notifPermission !== 'unsupported' && (
+          <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between gap-3 flex-shrink-0">
+            <span className="text-xs text-amber-800">
+              🔔 Notifications are {notifPermission === 'denied' ? 'blocked' : 'not enabled'} for this browser — you may miss alerts for new chats.
+              {notifPermission === 'denied' && ' Enable them in your browser\'s site settings.'}
+            </span>
+            {notifPermission === 'default' && (
+              <button
+                onClick={() => Notification.requestPermission().then(setNotifPermission)}
+                className="text-xs font-semibold text-amber-900 underline whitespace-nowrap">
+                Enable now
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Page content */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6">
           {children}
