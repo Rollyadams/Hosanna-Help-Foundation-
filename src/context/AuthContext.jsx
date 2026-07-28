@@ -17,6 +17,7 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
   const fetchProfileRequestId = useRef(0)
   const heartbeatRef = useRef(null)
+  const signingOutRef = useRef(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -69,6 +70,7 @@ export function AuthProvider({ children }) {
 
     function sendHeartbeat() {
       if (document.visibilityState === 'hidden') return // don't renew while backgrounded
+      if (signingOutRef.current) return // sign-out is in progress or just completed — never write 'online' after this point
       supabase.from('hhf_profiles')
         .update({ online_status: 'online', last_seen_at: new Date().toISOString() })
         .eq('id', user.id).then(() => {})
@@ -116,12 +118,41 @@ export function AuthProvider({ children }) {
   }
 
   async function signOut() {
+    signingOutRef.current = true // block any heartbeat — in-flight or interval-triggered — from writing 'online' from this point on
     if (heartbeatRef.current) clearInterval(heartbeatRef.current)
-    if (user && (profile?.role === 'staff' || profile?.role === 'admin')) {
-      await supabase.from('hhf_profiles').update({ online_status: 'offline' }).eq('id', user.id)
+    const signingOutUserId = user?.id
+    const wasStaffOrAdmin = profile?.role === 'staff' || profile?.role === 'admin'
+
+    if (signingOutUserId && wasStaffOrAdmin) {
+      await supabase.from('hhf_profiles').update({ online_status: 'offline' }).eq('id', signingOutUserId)
     }
+
+    // Update local state immediately so the person isn't stuck waiting —
+    // the safety-net re-assertion below runs in the background instead of
+    // blocking the sign-out experience.
     setUser(null); setProfile(null); setLoading(false)
     await supabase.auth.signOut()
+
+    // A heartbeat request that was already in-flight before signingOutRef
+    // was set could still land after our offline write above and silently
+    // flip it back to 'online' — this was the actual root cause of staff
+    // appearing online again after a deliberate, confirmed sign-out.
+    // Re-assert offline once more shortly after, in the background, to win
+    // that race.
+    //
+    // CAVEAT: by the time this fires, supabase.auth.signOut() has already
+    // revoked the session above. If hhf_profiles' RLS policy requires an
+    // authenticated session to UPDATE a row, this call will be rejected and
+    // silently do nothing — in which case the real fix is a policy that
+    // allows this specific write, or moving this logic server-side. Check
+    // this in practice: if staff still occasionally reappears online after
+    // sign-out despite this fix, RLS rejecting this background call is the
+    // next thing to check.
+    if (signingOutUserId && wasStaffOrAdmin) {
+      setTimeout(() => {
+        supabase.from('hhf_profiles').update({ online_status: 'offline' }).eq('id', signingOutUserId).then(() => {})
+      }, 1200)
+    }
   }
 
   async function resetPassword(email) {
