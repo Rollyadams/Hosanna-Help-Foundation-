@@ -156,7 +156,7 @@ function ChatWindow({ visitor, convoId }) {
   const [messages, setMessages] = useState([])
   const [newMsg, setNewMsg]     = useState('')
   const [sending, setSending]   = useState(false)
-  const [staffOnline, setStaffOnline] = useState(false)
+  const [staffOnline, setStaffOnline] = useState(null) // null = still checking, avoids flashing the wrong state before the first check resolves
   const [showBooking, setShowBooking] = useState(false)
   const [bookingForm, setBookingForm] = useState({ date: '', time: '', note: '' })
   const [bookingSent, setBookingSent] = useState(false)
@@ -249,6 +249,14 @@ function ChatWindow({ visitor, convoId }) {
     checkHasAccount()
     checkConvoStatus()
 
+    // checkStaffOnline() only reflects the moment it's called — without a
+    // recheck, "Team online" could stay stuck showing true long after the
+    // assigned staff member's heartbeat has actually gone stale (e.g. they
+    // locked their phone or closed the app). Poll it periodically so the
+    // indicator stays honest for the whole time the visitor has this page
+    // open, not just at page load.
+    const staffOnlinePoll = setInterval(checkStaffOnline, 45 * 1000)
+
     const statusSub = supabase
       .channel(`public_chat_status_${convoId}`)
       .on('postgres_changes', {
@@ -301,6 +309,7 @@ function ChatWindow({ visitor, convoId }) {
     return () => {
       supabase.removeChannel(sub)
       supabase.removeChannel(statusSub)
+      clearInterval(staffOnlinePoll)
       if (awayTimerRef.current) clearTimeout(awayTimerRef.current)
     }
   }, [convoId])
@@ -502,8 +511,10 @@ function ChatWindow({ visitor, convoId }) {
         <div className="flex-1 min-w-0">
           <div className="font-semibold text-sm">Hossanah Help Foundation</div>
           <div className="flex items-center gap-1.5 mt-0.5">
-            <span className={`w-2 h-2 rounded-full ${staffOnline ? 'bg-green-400' : 'bg-yellow-400'}`} />
-            <span className="text-xs text-white/80">{staffOnline ? 'Team online' : 'We will reply soon'}</span>
+            <span className={`w-2 h-2 rounded-full ${staffOnline === null ? 'bg-white/50' : staffOnline ? 'bg-green-400' : 'bg-yellow-400'}`} />
+            <span className="text-xs text-white/80">
+              {staffOnline === null ? 'Connecting…' : staffOnline ? 'Team online' : 'We will reply soon'}
+            </span>
           </div>
         </div>
         <div className="text-right flex-shrink-0">
@@ -944,4 +955,3 @@ export default function PublicChat() {
     </>
   )
 }
-
