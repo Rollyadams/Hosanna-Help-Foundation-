@@ -157,7 +157,6 @@ function ChatWindow({ visitor, convoId }) {
   const [newMsg, setNewMsg]     = useState('')
   const [sending, setSending]   = useState(false)
   const [staffOnline, setStaffOnline] = useState(null) // null = still checking, avoids flashing the wrong state before the first check resolves
-  const [debugSnapshot, setDebugSnapshot] = useState([])
   const [showBooking, setShowBooking] = useState(false)
   const [bookingForm, setBookingForm] = useState({ date: '', time: '', note: '' })
   const [bookingSent, setBookingSent] = useState(false)
@@ -210,23 +209,13 @@ function ChatWindow({ visitor, convoId }) {
 
   async function checkStaffOnline() {
     const staleCutoff = new Date(Date.now() - 90 * 1000).toISOString()
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('hhf_profiles')
-      .select('id, full_name, online_status, last_seen_at')
+      .select('id')
       .in('role', ['admin', 'staff'])
       .eq('online_status', 'online')
       .gte('last_seen_at', staleCutoff)
-      .limit(5)
-    // TEMPORARY DEBUG — remove once the "Team online" mismatch is found
-    window.__hhfDebug = window.__hhfDebug || []
-    window.__hhfDebug.push({
-      time: new Date().toLocaleTimeString(),
-      staleCutoff,
-      error: error?.message || null,
-      matchedRows: data,
-      resultCount: data?.length || 0,
-    })
-    setDebugSnapshot([...window.__hhfDebug])
+      .limit(1)
     setStaffOnline((data?.length || 0) > 0)
   }
 
@@ -538,25 +527,6 @@ function ChatWindow({ visitor, convoId }) {
           </button>
         </div>
       </div>
-
-      {/* TEMPORARY DEBUG PANEL — shows exactly what checkStaffOnline() found
-          on this device, to diagnose the "Team online" mismatch. Safe to
-          delete this entire block once the bug is found and fixed. */}
-      {debugSnapshot.length > 0 && (
-        <div className="bg-black text-green-400 text-[10px] font-mono p-2 max-h-40 overflow-y-auto flex-shrink-0">
-          {debugSnapshot.slice(-3).map((snap, i) => (
-            <div key={i} className="border-b border-gray-700 pb-1 mb-1">
-              <div>{snap.time} — staleCutoff: {snap.staleCutoff}</div>
-              <div>error: {snap.error || 'none'} | resultCount: {snap.resultCount}</div>
-              {snap.matchedRows?.map((r, j) => (
-                <div key={j} className="text-yellow-300">
-                  → {r.full_name}: online_status={r.online_status}, last_seen_at={r.last_seen_at}
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Persistent reminder to save the conversation — stays available even
           after the one-time inline prompt is dismissed, so the chance to
