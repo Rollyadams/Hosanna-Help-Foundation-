@@ -100,7 +100,7 @@ function AppointmentCard({ appt, role, onAction }) {
   return (
     <div className="bg-white rounded-xl border border-gray-100 p-4 hover:shadow-sm transition-shadow">
       <div className="flex items-start gap-3">
-        <Avatar name={counterpart || '?'} id={role === 'client' ? (appt.staff_id||'') : (appt.client_id||'')} />
+        <Avatar name={counterpart || '?'} id={role === 'client' ? (appt.staff_id||'') : (appt.client_id || appt.guest_client_id || '')} />
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <div>
@@ -355,25 +355,36 @@ export default function Appointments() {
       const { data, error: err } = await q
       if (err) throw err
 
-      // Fetch names for all unique user IDs
-      const ids = [...new Set([
+      // Fetch names for all unique user IDs — client_id resolves against
+      // hhf_profiles (registered accounts), guest_client_id resolves
+      // against hhf_guest_profiles (anonymous public-chat visitors). A
+      // booking will only ever have one of the two set.
+      const staffAndClientIds = [...new Set([
         ...(data||[]).map(a => a.staff_id).filter(Boolean),
         ...(data||[]).map(a => a.client_id).filter(Boolean),
       ])]
+      const guestIds = [...new Set((data||[]).map(a => a.guest_client_id).filter(Boolean))]
 
       let nameMap = {}
-      if (ids.length) {
+      if (staffAndClientIds.length) {
         const { data: profiles } = await supabase
           .from('hhf_profiles')
           .select('id, full_name')
-          .in('id', ids)
+          .in('id', staffAndClientIds)
         ;(profiles||[]).forEach(p => { nameMap[p.id] = p.full_name })
+      }
+      if (guestIds.length) {
+        const { data: guests } = await supabase
+          .from('hhf_guest_profiles')
+          .select('id, full_name')
+          .in('id', guestIds)
+        ;(guests||[]).forEach(g => { nameMap[g.id] = g.full_name })
       }
 
       const enriched = (data||[]).map(a => ({
         ...a,
         staff_name:  nameMap[a.staff_id]  || 'Staff',
-        client_name: nameMap[a.client_id] || 'Client',
+        client_name: nameMap[a.client_id] || nameMap[a.guest_client_id] || 'Client',
       }))
 
       setAppointments(enriched)
