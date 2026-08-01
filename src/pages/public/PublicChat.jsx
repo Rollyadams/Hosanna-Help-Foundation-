@@ -20,6 +20,53 @@ function ReadTick({ status, mine }) {
   )
 }
 
+// Masked HH:MM text input for the booking form — free text like "2pm" or
+// "12pm" was silently being ignored by the booking code (it only handled
+// strict HH:MM, falling back to a hardcoded 09:00 default with no warning),
+// which is exactly why appointments kept showing the wrong time. This mirrors
+// the same fix already used for staff roster hours: plain text field with
+// input masking, not the native <input type="time"> picker (whose OS dialog
+// can clip its own confirm button on some Android/Chrome combinations).
+function BookingTimeInput({ value, onChange }) {
+  const [text, setText] = useState(value || '')
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing local text with the external `value` prop when it changes, same pattern used in Roster.jsx's TimeInput
+  useEffect(() => { setText(value || '') }, [value])
+
+  function handleChange(e) {
+    let raw = e.target.value.replace(/[^\d]/g, '')
+    if (raw.length > 4) raw = raw.slice(0, 4)
+    let hh = raw.slice(0, 2)
+    let mm = raw.slice(2, 4)
+    if (hh.length === 2 && parseInt(hh, 10) > 23) hh = '23'
+    if (mm.length === 2 && parseInt(mm, 10) > 59) mm = '59'
+    setText(mm.length ? `${hh}:${mm}` : hh)
+  }
+
+  function handleBlur() {
+    const digits = text.replace(/[^\d]/g, '')
+    if (digits.length < 3) { setText(value || ''); onChange(value || ''); return }
+    const hh = digits.slice(0, 2).padStart(2, '0')
+    const mm = digits.slice(2, 4).padEnd(2, '0')
+    const clean = `${Math.min(parseInt(hh, 10), 23).toString().padStart(2, '0')}:${Math.min(parseInt(mm, 10), 59).toString().padStart(2, '0')}`
+    setText(clean)
+    onChange(clean)
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={text}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      placeholder="e.g. 14:00 (24-hour)"
+      maxLength={5}
+      className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+    />
+  )
+}
+
 // ── VISITOR FORM ────────────────────────────────────────────
 function VisitorForm({ onStart, onReturn }) {
   const [mode, setMode]   = useState('new')
@@ -649,12 +696,9 @@ function ChatWindow({ visitor, convoId }) {
               value={bookingForm.date}
               onChange={e => setBookingForm(f => ({ ...f, date: e.target.value }))}
             />
-            <input
-              type="text"
-              placeholder="Preferred time (e.g. 10:00 AM)"
-              className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            <BookingTimeInput
               value={bookingForm.time}
-              onChange={e => setBookingForm(f => ({ ...f, time: e.target.value }))}
+              onChange={v => setBookingForm(f => ({ ...f, time: v }))}
             />
             <textarea
               placeholder="Any additional notes? (optional)"
@@ -676,7 +720,7 @@ function ChatWindow({ visitor, convoId }) {
                   const { data: staffRow } = await supabase
                     .from('hhf_conversations').select('participant_a, participant_b').eq('id', convoId).single()
                   const staffId = staffRow?.participant_a === visitor.id ? staffRow?.participant_b : staffRow?.participant_a
-                  const scheduledAt = new Date(`${bookingForm.date}T${bookingForm.time.includes(':') ? bookingForm.time.slice(0,5) : '09:00'}`)
+                  const scheduledAt = new Date(`${bookingForm.date}T${bookingForm.time || '09:00'}`)
                   // client_id is foreign-keyed to hhf_profiles (registered
                   // accounts only) — an anonymous visitor's id lives in
                   // hhf_guest_profiles instead, so it must go in
