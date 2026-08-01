@@ -217,7 +217,7 @@ function ChatWindow({ visitor, convoId }) {
         const { data: existingAppt } = await supabase
           .from('hhf_appointments')
           .select('id')
-          .eq('client_id', visitorRef.current.id)
+          .eq('guest_client_id', visitorRef.current.id)
           .limit(1)
           .maybeSingle()
         if (existingAppt) {
@@ -677,24 +677,27 @@ function ChatWindow({ visitor, convoId }) {
                     .from('hhf_conversations').select('participant_a, participant_b').eq('id', convoId).single()
                   const staffId = staffRow?.participant_a === visitor.id ? staffRow?.participant_b : staffRow?.participant_a
                   const scheduledAt = new Date(`${bookingForm.date}T${bookingForm.time.includes(':') ? bookingForm.time.slice(0,5) : '09:00'}`)
+                  // client_id is foreign-keyed to hhf_profiles (registered
+                  // accounts only) — an anonymous visitor's id lives in
+                  // hhf_guest_profiles instead, so it must go in
+                  // guest_client_id, never client_id. booked_by is left
+                  // null for guest bookings rather than risk the same kind
+                  // of foreign-key mismatch (it's nullable, so this is safe).
                   const { error: apptError } = await supabase.from('hhf_appointments').insert({
-                    staff_id:        staffId,
-                    client_id:       visitor.id,
-                    booked_by:       visitor.id,
-                    scheduled_at:    scheduledAt.toISOString(),
+                    staff_id:         staffId,
+                    guest_client_id:  visitor.id,
+                    scheduled_at:     scheduledAt.toISOString(),
                     duration_minutes: 60,
-                    service_type:    'Public Chat Follow-up',
-                    notes:           bookingForm.note || null,
-                    status:          'pending',
+                    service_type:     'Public Chat Follow-up',
+                    notes:            bookingForm.note || null,
+                    status:           'pending',
                   })
                   if (apptError) {
                     // Don't silently claim success if the insert actually
                     // failed (e.g. an RLS policy gap) — this was the exact
                     // bug that made bookings look confirmed to the visitor
                     // while nothing ever reached staff.
-                    // TEMPORARY: show the real error message to diagnose —
-                    // revert to the generic message once the cause is found.
-                    setBookingError(`Debug: ${apptError.message} (code: ${apptError.code || 'n/a'})`)
+                    setBookingError('Something went wrong requesting that appointment. Please try again, or send us a message directly.')
                     return
                   }
                   // Confirm in chat
