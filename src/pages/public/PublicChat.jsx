@@ -160,6 +160,7 @@ function ChatWindow({ visitor, convoId }) {
   const [showBooking, setShowBooking] = useState(false)
   const [bookingForm, setBookingForm] = useState({ date: '', time: '', note: '' })
   const [bookingSent, setBookingSent] = useState(false)
+  const [bookingError, setBookingError] = useState('')
   const [showSavePrompt, setShowSavePrompt] = useState(false)
   const [savePromptDismissed, setSavePromptDismissed] = useState(false)
   const [hasAccount, setHasAccount] = useState(true) // assume true until checked, to avoid a flash of the prompt
@@ -203,6 +204,28 @@ function ChatWindow({ visitor, convoId }) {
     if (data) {
       setMessages(data)
       markAllRead(data)
+
+      // If the visitor is loading (or reloading) the page and the most
+      // recent message is already an away-reply — e.g. sent earlier by the
+      // server-side cron job while their browser was closed — show the
+      // booking card immediately rather than only reacting to a live
+      // realtime INSERT, which they'd have missed entirely. Skip this if
+      // they've already booked an appointment (bookingSent is only local
+      // React state and resets on reload, so we check the real record).
+      const lastMsg = data[data.length - 1]
+      if (lastMsg?.is_away_reply) {
+        const { data: existingAppt } = await supabase
+          .from('hhf_appointments')
+          .select('id')
+          .eq('client_id', visitorRef.current.id)
+          .limit(1)
+          .maybeSingle()
+        if (existingAppt) {
+          setBookingSent(true)
+        } else {
+          setShowBooking(true)
+        }
+      }
     }
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
   }
@@ -291,6 +314,18 @@ function ChatWindow({ visitor, convoId }) {
             staffReplied.current = true
             if (awayTimerRef.current) clearTimeout(awayTimerRef.current)
           }
+        }
+
+        // Show the booking card whenever an away-reply arrives, no matter
+        // where it came from. Previously this only happened as a direct
+        // side-effect of the visitor's own local setTimeout finishing —
+        // which meant away-messages sent by the server-side cron job (which
+        // has no connection to any visitor's browser state) never triggered
+        // the booking card at all, even though the text of the message
+        // still offered one. Reacting to the message itself, via realtime,
+        // works regardless of which mechanism actually sent it.
+        if (msg.is_away_reply) {
+          setShowBooking(true)
         }
       })
       .on('postgres_changes', {
@@ -603,6 +638,9 @@ function ChatWindow({ visitor, convoId }) {
         <div className="mx-3 mb-2 bg-white border border-blue-200 rounded-2xl p-4 shadow-sm flex-shrink-0">
           <p className="text-sm font-semibold text-gray-900 mb-1">📅 Book an Appointment</p>
           <p className="text-xs text-gray-500 mb-3">Our team will follow up with you as soon as possible.</p>
+          {bookingError && (
+            <div className="bg-red-50 border border-red-100 text-red-600 text-xs px-3 py-2 rounded-lg mb-3">{bookingError}</div>
+          )}
           <div className="space-y-2">
             <input
               type="date"
@@ -639,7 +677,7 @@ function ChatWindow({ visitor, convoId }) {
                     .from('hhf_conversations').select('participant_a, participant_b').eq('id', convoId).single()
                   const staffId = staffRow?.participant_a === visitor.id ? staffRow?.participant_b : staffRow?.participant_a
                   const scheduledAt = new Date(`${bookingForm.date}T${bookingForm.time.includes(':') ? bookingForm.time.slice(0,5) : '09:00'}`)
-                  await supabase.from('hhf_appointments').insert({
+                  const { error: apptError } = await supabase.from('hhf_appointments').insert({
                     staff_id:        staffId,
                     client_id:       visitor.id,
                     booked_by:       visitor.id,
@@ -649,6 +687,14 @@ function ChatWindow({ visitor, convoId }) {
                     notes:           bookingForm.note || null,
                     status:          'pending',
                   })
+                  if (apptError) {
+                    // Don't silently claim success if the insert actually
+                    // failed (e.g. an RLS policy gap) — this was the exact
+                    // bug that made bookings look confirmed to the visitor
+                    // while nothing ever reached staff.
+                    setBookingError('Something went wrong requesting that appointment. Please try again, or send us a message directly.')
+                    return
+                  }
                   // Confirm in chat
                   await supabase.from('hhf_messages').insert({
                     conversation_id: convoId,
@@ -659,6 +705,7 @@ function ChatWindow({ visitor, convoId }) {
                   })
                   setBookingSent(true)
                   setShowBooking(false)
+                  setBookingError('')
                 }}
                 disabled={!bookingForm.date}
                 className="flex-1 py-2 text-xs font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 disabled:opacity-50">
