@@ -692,7 +692,9 @@ function ChatWindow({ visitor, convoId }) {
                     // failed (e.g. an RLS policy gap) — this was the exact
                     // bug that made bookings look confirmed to the visitor
                     // while nothing ever reached staff.
-                    setBookingError('Something went wrong requesting that appointment. Please try again, or send us a message directly.')
+                    // TEMPORARY: show the real error message to diagnose —
+                    // revert to the generic message once the cause is found.
+                    setBookingError(`Debug: ${apptError.message} (code: ${apptError.code || 'n/a'})`)
                     return
                   }
                   // Confirm in chat
