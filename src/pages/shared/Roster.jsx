@@ -24,7 +24,18 @@ function getMonday(date = new Date()) {
 }
 
 function toDateStr(date) {
-  return date.toISOString().split('T')[0]
+  // IMPORTANT: do NOT use date.toISOString() here — it converts to UTC
+  // first, which silently shifts the date backward by one day for anyone
+  // in a timezone ahead of UTC (e.g. Nigeria, WAT = UTC+1) when the local
+  // time is late enough that the UTC equivalent has already rolled over to
+  // the previous day. This was the actual root cause of week_start being
+  // saved as a Sunday instead of the intended Monday. Format using local
+  // date components instead, so "Monday" always genuinely means Monday in
+  // the browser's own timezone.
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 function weekLabel(monday) {
