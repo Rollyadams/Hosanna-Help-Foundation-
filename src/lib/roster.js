@@ -135,10 +135,29 @@ export async function pickNextStaff(availableIds) {
   return ranked[0].id
 }
 
+// The designated fallback account when no staff/admin is genuinely
+// available — kept in sync with the same account used by the server-side
+// cron job (hhf_check_stale_conversations / fix_stale_conversation_v2_...
+// .sql). This is a deliberate choice, not an arbitrary pick: it's the
+// organization's main account, not "whoever happens to still be active."
+const FALLBACK_ADMIN_EMAIL = 'info@hhfoundation.com.ng'
+
+async function getFallbackAdminId() {
+  const { data } = await supabase
+    .from('hhf_profiles')
+    .select('id')
+    .eq('email', FALLBACK_ADMIN_EMAIL)
+    .maybeSingle()
+  return data?.id || null
+}
+
 /**
  * Full assignment flow used when a new visitor conversation is created.
  * Returns { staffId, wasFallback } where wasFallback indicates no one was
- * truly "available" and we fell back to any active staff member.
+ * truly "available" (per the real roster + online status) and we routed to
+ * the designated fallback admin instead — never to "any active staff
+ * regardless of whether they're actually on shift," which defeats the
+ * whole point of respecting the roster.
  */
 export async function assignStaffForNewConversation() {
   const availableIds = await getAvailableStaffIds()
@@ -147,13 +166,7 @@ export async function assignStaffForNewConversation() {
 
   if (!staffId) {
     wasFallback = true
-    const { data: anyStaff } = await supabase
-      .from('hhf_profiles')
-      .select('id')
-      .in('role', ['admin', 'staff'])
-      .eq('status', 'active')
-      .limit(20)
-    staffId = await pickNextStaff((anyStaff || []).map(s => s.id))
+    staffId = await getFallbackAdminId()
   }
 
   return { staffId: staffId || null, wasFallback }
