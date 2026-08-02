@@ -19,37 +19,36 @@ function currentDayKey(date = new Date()) {
 }
 
 function currentTimeStr(date = new Date()) {
-  return date.toTimeString().slice(0, 5) // 'HH:MM'
+  return date.toTimeString().slice(0, 5) // 'HH:MM' — deliberately uses the
+  // browser/server's local time, same as the rest of this file. If staff
+  // enter roster hours assuming West Africa Time but the environment
+  // evaluating this runs in a different timezone, comparisons here will be
+  // wrong. Worth confirming explicitly rather than assuming — flagged here
+  // since it's an easy thing to get silently wrong.
 }
 
-function todayStr(date = new Date()) {
-  return date.toISOString().split('T')[0]
-}
-
-function isWithinWorkingHours(availability, now = new Date()) {
-  const hours = availability?.working_hours
-  if (!hours) return true // no hours configured — treat as always available
-  const day = hours[currentDayKey(now)]
-  if (!day || !day.enabled) return false
-  const t = currentTimeStr(now)
-  return t >= day.start && t <= day.end
-}
-
-function isBlockedToday(availability, now = new Date()) {
-  const blocked = availability?.blocked_dates || []
-  return blocked.some(b => b.date === todayStr(now))
-}
-
-function isAwayNow(availability, now = new Date()) {
-  if (!availability?.is_away) return false
-  if (!availability.away_until) return true // away indefinitely
-  return new Date(availability.away_until) >= now
+// Monday of the current week, formatted the same way Roster.jsx does when
+// saving (YYYY-MM-DD, local Monday 00:00), so we look up the correct row.
+function currentWeekStart(date = new Date()) {
+  const d = new Date(date)
+  const day = d.getDay()
+  const diff = (day === 0 ? -6 : 1 - day)
+  d.setDate(d.getDate() + diff)
+  d.setHours(0, 0, 0, 0)
+  return d.toISOString().split('T')[0]
 }
 
 /**
  * Returns the list of staff/admin profile ids who are genuinely available
- * right now: active account, online with a fresh heartbeat, not marked
- * away, within working hours, and not on a blocked date.
+ * right now: active account, online with a fresh heartbeat, and — per the
+ * real weekly roster in hhf_roster — scheduled to be working at this exact
+ * day/time, with is_available not explicitly turned off.
+ *
+ * NOTE: previously this checked a table called hhf_availability, which
+ * nothing in the app ever wrote to — every roster entry staff actually
+ * saved (via Roster.jsx, into hhf_roster) was silently ignored for routing
+ * purposes. This was a real bug: "available" only ever meant "app open
+ * right now," with the deliberately-set weekly schedule having zero effect.
  */
 export async function getAvailableStaffIds() {
   const now = new Date()
@@ -66,21 +65,34 @@ export async function getAvailableStaffIds() {
   if (profErr || !profiles?.length) return []
 
   const ids = profiles.map(p => p.id)
+  const weekStart = currentWeekStart(now)
+  const today = currentDayKey(now)
+  const nowTime = currentTimeStr(now)
 
-  const { data: availRows } = await supabase
-    .from('hhf_availability')
-    .select('staff_id, is_away, away_until, working_hours, blocked_dates')
+  const { data: rosterRows } = await supabase
+    .from('hhf_roster')
+    .select('staff_id, day, start_time, end_time, is_available')
     .in('staff_id', ids)
+    .eq('week_start', weekStart)
+    .eq('day', today)
 
-  const availMap = new Map((availRows || []).map(a => [a.staff_id, a]))
+  const rosterMap = new Map((rosterRows || []).map(r => [r.staff_id, r]))
 
   return ids.filter(id => {
-    const avail = availMap.get(id)
-    if (!avail) return true // no availability record yet — assume available
-    if (isAwayNow(avail, now)) return false
-    if (isBlockedToday(avail, now)) return false
-    if (!isWithinWorkingHours(avail, now)) return false
-    return true
+    const shift = rosterMap.get(id)
+    // No roster entry at all for this staff member this week — rather than
+    // silently assume they're available (the old, wrong behavior), treat
+    // them as NOT available. A missing schedule should not be interpreted
+    // as "on call 24/7" — that's how the roster ended up being bypassed
+    // for everyone in the first place.
+    if (!shift) return false
+    if (shift.is_available === false) return false
+    // start_time/end_time are stored as 'HH:MM:SS' — compare against the
+    // same 'HH:MM' precision used elsewhere in this file.
+    const start = shift.start_time?.slice(0, 5)
+    const end = shift.end_time?.slice(0, 5)
+    if (!start || !end) return false
+    return nowTime >= start && nowTime <= end
   })
 }
 
