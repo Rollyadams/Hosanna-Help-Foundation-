@@ -61,53 +61,20 @@ function getAudioCtx() {
   return sharedAudioCtx
 }
 
-// Temporary debug hook — the AppShell component below sets this so
-// playAlertTone (a module-level function, outside the component) can report
-// what's happening without needing prop drilling. Safe to remove once the
-// sound bug is found and fixed.
-let debugLogHook = null
-
-async function unlockAudio() {
+function unlockAudio() {
   const ctx = getAudioCtx()
-  debugLogHook?.(`unlockAudio(): ctx=${ctx ? 'exists' : 'NULL (AudioContext unsupported?)'}, state=${ctx?.state}`)
-  if (ctx && ctx.state === 'suspended') {
-    try {
-      await ctx.resume()
-      debugLogHook?.(`ctx.resume() succeeded, new state=${ctx.state}`)
-    } catch (err) {
-      debugLogHook?.(`ctx.resume() FAILED: ${err.message}`)
-    }
-  }
+  if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {})
 }
 
 // A short, generated "ring" tone — no external audio file needed.
-async function playAlertTone() {
+function playAlertTone() {
   try {
     const ctx = getAudioCtx()
-    if (!ctx) { debugLogHook?.('playAlertTone: getAudioCtx() returned NULL — AudioContext not supported in this browser'); return }
-    debugLogHook?.(`playAlertTone: ctx.state=${ctx.state}`)
-
-    // Critical fix: on mobile Chrome/Safari, calling ctx.resume() and then
-    // immediately scheduling oscillators (without waiting for resume to
-    // actually finish) causes the scheduled sound to be silently dropped —
-    // no error, just silence. We must await the resume before scheduling
-    // anything, since ctx.currentTime only starts advancing correctly
-    // again once the context is actually running.
-    if (ctx.state === 'suspended') {
-      try {
-        await ctx.resume()
-        debugLogHook?.(`playAlertTone: resume() completed, state now=${ctx.state}`)
-      } catch (err) {
-        debugLogHook?.(`playAlertTone: resume() FAILED: ${err.message}`)
-        return
-      }
-    }
-
-    if (ctx.state !== 'running') {
-      debugLogHook?.(`playAlertTone: ctx still not running (state=${ctx.state}) — skipping, sound would be silently dropped`)
-      return
-    }
-
+    if (!ctx) return
+    // If the context is still suspended (no interaction has unlocked it
+    // yet), try to resume it right now as a last-ditch effort — this can
+    // still fail silently per browser policy, but costs nothing to try.
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {})
     const beep = (freq, start, duration) => {
       const osc = ctx.createOscillator()
       const gain = ctx.createGain()
@@ -123,12 +90,10 @@ async function playAlertTone() {
     }
     beep(880, 0, 0.15)
     beep(660, 0.18, 0.15)
-    debugLogHook?.('playAlertTone: oscillators scheduled successfully')
-  } catch (err) {
-    debugLogHook?.(`playAlertTone: THREW an error: ${err.message}`)
+  } catch {
+    /* audio not available — fail silently */
   }
 }
-
 
 export default function AppShell({ children }) {
   const { profile, signOut } = useAuth()
@@ -141,25 +106,23 @@ export default function AppShell({ children }) {
   const titleFlashRef = useRef(null)
   const repeatAlertRef = useRef(null)
 
-  // ── TEMPORARY DEBUG PANEL ─────────────────────────────────
-  // Visible, on-screen log for diagnosing the "no sound" issue without
-  // needing desktop DevTools. Safe to delete this whole block (and the
-  // <DebugPanel /> render below) once the bug is found and fixed.
-  const [debugLog, setDebugLog] = useState([])
-  const [debugOpen, setDebugOpen] = useState(false)
-  function logDebug(msg) {
-    const line = `${new Date().toLocaleTimeString()} — ${msg}`
-    console.log('[HHF DEBUG]', line)
-    setDebugLog(prev => [...prev.slice(-29), line])
-  }
-
-  useEffect(() => {
-    debugLogHook = logDebug
-    return () => { debugLogHook = null }
-  })
-
   const items = navItems[profile?.role] || []
   const initials = profile?.full_name?.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase() || '??'
+
+  // ── SESSION INACTIVITY TIMEOUT ────────────────────────────────────────
+  // Staff/admin sessions previously never expired — Supabase's
+  // autoRefreshToken keeps a session alive indefinitely regardless of
+  // activity, so someone could stay logged in on a shared/borrowed device
+  // for days. After INACTIVITY_TIMEOUT_MS of no interaction, sign out
+  // automatically, with a warning shown WARNING_BEFORE_MS before it happens
+  // so nobody is kicked out without notice mid-task.
+  const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000  // 30 minutes
+  const WARNING_BEFORE_MS     = 60 * 1000        // warn 60s before logout
+  const [showTimeoutWarning, setShowTimeoutWarning] = useState(false)
+  const [warningSecondsLeft, setWarningSecondsLeft] = useState(60)
+  const inactivityTimerRef = useRef(null)
+  const warningTimerRef    = useRef(null)
+  const countdownIntervalRef = useRef(null)
 
   // Unlock audio on the very first interaction anywhere in the app, so the
   // alert tone actually has a chance to play by the time a real
@@ -167,7 +130,6 @@ export default function AppShell({ children }) {
   // anything (just watches the tab) could get zero sound with no warning.
   useEffect(() => {
     function unlock() {
-      logDebug('First interaction detected — calling unlockAudio()')
       unlockAudio()
       window.removeEventListener('pointerdown', unlock)
       window.removeEventListener('keydown', unlock)
@@ -179,6 +141,50 @@ export default function AppShell({ children }) {
       window.removeEventListener('keydown', unlock)
     }
   }, [])
+
+  // Reset the inactivity clock whenever the person actually does something.
+  // Only runs for logged-in staff/admin/client — no point tracking
+  // inactivity on public pages with no session to protect. Previously,
+  // Supabase's autoRefreshToken kept sessions alive indefinitely regardless
+  // of activity, so someone could stay logged in on a shared/borrowed
+  // device for days (confirmed: a session left overnight was still active
+  // the next night).
+  useEffect(() => {
+    if (!profile) return
+
+    function clearTimers() {
+      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current)
+      if (warningTimerRef.current) clearTimeout(warningTimerRef.current)
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
+    }
+
+    function startWarningCountdown() {
+      setShowTimeoutWarning(true)
+      setWarningSecondsLeft(Math.round(WARNING_BEFORE_MS / 1000))
+      countdownIntervalRef.current = setInterval(() => {
+        setWarningSecondsLeft(s => (s <= 1 ? 0 : s - 1))
+      }, 1000)
+    }
+
+    function resetTimer() {
+      clearTimers()
+      setShowTimeoutWarning(false)
+      warningTimerRef.current = setTimeout(startWarningCountdown, INACTIVITY_TIMEOUT_MS - WARNING_BEFORE_MS)
+      inactivityTimerRef.current = setTimeout(() => {
+        handleSignOut()
+      }, INACTIVITY_TIMEOUT_MS)
+    }
+
+    const activityEvents = ['pointerdown', 'keydown', 'touchstart', 'scroll']
+    activityEvents.forEach(evt => window.addEventListener(evt, resetTimer))
+    resetTimer() // start the clock as soon as this mounts
+
+    return () => {
+      clearTimers()
+      activityEvents.forEach(evt => window.removeEventListener(evt, resetTimer))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- INACTIVITY_TIMEOUT_MS/WARNING_BEFORE_MS are constants that never change, and handleSignOut is stable in practice; including them would only cause needless effect re-runs
+  }, [profile])
 
   async function handleSignOut() {
     await signOut()
@@ -234,18 +240,12 @@ export default function AppShell({ children }) {
   }
 
   // The moment the tab is back in focus, treat it as "seen" — stop
-  // flashing the title and stop repeating the alert tone. Also proactively
-  // re-resume the AudioContext here: mobile browsers commonly re-suspend
-  // it after the tab is backgrounded, even once it was already unlocked —
-  // this was the actual root cause of alerts going silent (confirmed via
-  // the debug panel showing ctx.state flip from "running" back to
-  // "suspended" between sessions).
+  // flashing the title and stop repeating the alert tone.
   useEffect(() => {
     function handleVisibility() {
       if (document.visibilityState === 'visible') {
         stopTitleFlash()
         stopRepeatingAlert()
-        unlockAudio()
       }
     }
     document.addEventListener('visibilitychange', handleVisibility)
@@ -267,10 +267,6 @@ export default function AppShell({ children }) {
     return () => window.removeEventListener('hhf:notifications-changed', handler)
   }, [loadUnreadCount])
 
-  const [notifPermission, setNotifPermission] = useState(
-    typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
-  )
-
   // Ask for browser notification permission once, only for staff/admin roles
   // who actually need to be alerted about incoming chats.
   useEffect(() => {
@@ -279,7 +275,7 @@ export default function AppShell({ children }) {
     if (notifPermissionAsked.current) return
     notifPermissionAsked.current = true
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-      Notification.requestPermission().then(setNotifPermission).catch(() => {})
+      Notification.requestPermission().catch(() => {})
     }
   }, [profile])
 
@@ -289,9 +285,6 @@ export default function AppShell({ children }) {
   useEffect(() => {
     if (!profile?.id) return
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- temporary debug logging, safe to remove along with the rest of this debug panel
-    logDebug(`Setting up realtime subscription for recipient_id=${profile.id}`)
-
     const channel = supabase
       .channel(`appshell_notifications_${profile.id}`)
       .on('postgres_changes', {
@@ -300,14 +293,12 @@ export default function AppShell({ children }) {
         table: 'hhf_notifications',
         filter: `recipient_id=eq.${profile.id}`,
       }, payload => {
-        logDebug(`✅ Realtime event RECEIVED: "${payload.new?.title}"`)
         setUnreadCount(prev => prev + 1)
         playAlertTone()
 
         // If they're not even looking at this tab, escalate: flash the
         // title and keep re-playing the tone until they come back.
         if (document.visibilityState === 'hidden') {
-          logDebug('Tab hidden — starting title flash + repeating alert')
           startTitleFlash(`🔴 New message — ${originalTitleRef.current}`)
           startRepeatingAlert()
         }
@@ -318,16 +309,12 @@ export default function AppShell({ children }) {
               body: payload.new.body || 'You have a new notification.',
               icon: '/favicon.svg',
             })
-          } catch (err) {
-            logDebug(`Browser Notification failed: ${err.message}`)
+          } catch {
+            /* ignore */
           }
-        } else {
-          logDebug(`Browser Notification permission: ${typeof Notification !== 'undefined' ? Notification.permission : 'Notification API unavailable'}`)
         }
       })
-      .subscribe((status, err) => {
-        logDebug(`Subscribe status: ${status}${err ? ' — ERROR: ' + err.message : ''}`)
-      })
+      .subscribe()
 
     return () => supabase.removeChannel(channel)
   }, [profile?.id])
@@ -392,48 +379,33 @@ export default function AppShell({ children }) {
             )}
           </Link>
         </header>
-
-        {(profile?.role === 'admin' || profile?.role === 'staff') && notifPermission !== 'granted' && notifPermission !== 'unsupported' && (
-          <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between gap-3 flex-shrink-0">
-            <span className="text-xs text-amber-800">
-              🔔 Notifications are {notifPermission === 'denied' ? 'blocked' : 'not enabled'} for this browser — you may miss alerts for new chats.
-              {notifPermission === 'denied' && ' Enable them in your browser\'s site settings.'}
-            </span>
-            {notifPermission === 'default' && (
-              <button
-                onClick={() => Notification.requestPermission().then(setNotifPermission)}
-                className="text-xs font-semibold text-amber-900 underline whitespace-nowrap">
-                Enable now
-              </button>
-            )}
-          </div>
-        )}
-
         {/* Page content */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6">
           {children}
         </main>
       </div>
 
-      {/* ── TEMPORARY DEBUG PANEL — delete this whole block once the sound
-          bug is fixed. Floating button bottom-right; tap to expand a log
-          of what the notification/audio system is actually doing. */}
-      <button
-        onClick={() => setDebugOpen(o => !o)}
-        className="fixed bottom-4 right-4 z-50 w-11 h-11 rounded-full bg-gray-900 text-white text-xs font-bold flex items-center justify-center shadow-lg"
-        style={{ opacity: 0.85 }}>
-        {debugOpen ? '✕' : 'DBG'}
-      </button>
-      {debugOpen && (
-        <div className="fixed bottom-16 right-4 z-50 w-[92vw] max-w-md max-h-[60vh] bg-gray-900 text-green-400 text-[11px] font-mono rounded-lg shadow-2xl overflow-y-auto p-3">
-          <div className="flex justify-between items-center mb-2 text-white text-xs font-sans font-bold">
-            <span>Debug Log ({debugLog.length})</span>
-            <button onClick={() => setDebugLog([])} className="text-gray-400 underline">clear</button>
+      {/* Session inactivity warning — appears WARNING_BEFORE_MS before
+          auto-logout. Any click/tap/keypress anywhere (including "Stay
+          logged in" below) resets the timer via the global listener. */}
+      {showTimeoutWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center">
+            <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-amber-50 flex items-center justify-center">
+              <svg className="w-6 h-6 text-amber-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+              </svg>
+            </div>
+            <h3 className="text-base font-semibold text-gray-900 mb-1">Still there?</h3>
+            <p className="text-sm text-gray-500 mb-5">
+              You've been inactive for a while. For security, you'll be signed out in <span className="font-semibold text-gray-700">{warningSecondsLeft}s</span> unless you tap below.
+            </p>
+            <button
+              onClick={() => setShowTimeoutWarning(false)}
+              className="w-full py-2.5 text-sm font-semibold text-white bg-hhf-blue rounded-xl hover:opacity-90">
+              Stay logged in
+            </button>
           </div>
-          {debugLog.length === 0 && <div className="text-gray-500">No events yet. Waiting…</div>}
-          {debugLog.map((line, i) => (
-            <div key={i} className="border-b border-gray-800 py-1 break-words">{line}</div>
-          ))}
         </div>
       )}
     </div>
