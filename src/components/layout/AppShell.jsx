@@ -116,7 +116,7 @@ export default function AppShell({ children }) {
   // for days. After INACTIVITY_TIMEOUT_MS of no interaction, sign out
   // automatically, with a warning shown WARNING_BEFORE_MS before it happens
   // so nobody is kicked out without notice mid-task.
-  const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000  // 30 minutes
+  const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000  // 15 minutes — tightened from 30 to match a stricter security posture appropriate for an NGO handling visitor help-seeking data
   const WARNING_BEFORE_MS     = 60 * 1000        // warn 60s before logout
   const [showTimeoutWarning, setShowTimeoutWarning] = useState(false)
   const [warningSecondsLeft, setWarningSecondsLeft] = useState(60)
