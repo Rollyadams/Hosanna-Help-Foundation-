@@ -209,10 +209,17 @@ function BookForm({ profile, staffList, onBook, onClose }) {
 
     setSaving(true)
     setError('')
-    const err = await onBook(form)
-    setSaving(false)
-    if (err) setError(err)
-    else onClose()
+    try {
+      const err = await onBook(form)
+      if (err) setError(err)
+      else onClose()
+    } catch (e) {
+      // Don't let the button hang forever on an unexpected throw — this was
+      // the exact cause of "Booking…" getting stuck until a manual refresh.
+      setError(e.message || 'Something went wrong. Please try again.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
