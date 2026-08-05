@@ -239,11 +239,16 @@ function BookForm({ profile, staffList, onBook, onClose }) {
           <select
             className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
             value={form.client_id}
-            onChange={e => set('client_id', e.target.value)}
+            onChange={e => {
+              const selected = staffList.find(c => c.id === e.target.value)
+              set('client_id', e.target.value)
+              set('clientKind', selected?.kind || 'client')
+            }}
           >
             <option value="">Select client…</option>
-            {staffList.map(c => <option key={c.id} value={c.id}>{c.full_name}</option>)}
+            {staffList.map(c => <option key={c.id} value={c.id}>{c.label || c.full_name}</option>)}
           </select>
+          <p className="text-xs text-gray-400 mt-1">Includes registered clients and public chat visitors.</p>
         </div>
       )}
 
@@ -395,17 +400,32 @@ export default function Appointments() {
     }
   }, [profile, role])
 
-  // Load counterparts for booking form
+  // Load counterparts for booking form. For staff/admin booking on behalf
+  // of someone, this includes both registered clients (hhf_profiles) and
+  // anonymous public-chat visitors (hhf_guest_profiles) — previously only
+  // registered clients were selectable here, so staff had no way to book
+  // an appointment for a guest visitor directly.
   const loadCounterparts = useCallback(async () => {
     if (!profile) return
-    const targetRole = role === 'client' ? 'staff' : 'client'
-    const { data } = await supabase
-      .from('hhf_profiles')
-      .select('id, full_name')
-      .eq('role', targetRole)
-      .eq('status', 'active')
-      .order('full_name')
-    setCounterparts(data || [])
+    if (role === 'client') {
+      const { data } = await supabase
+        .from('hhf_profiles')
+        .select('id, full_name')
+        .eq('role', 'staff')
+        .eq('status', 'active')
+        .order('full_name')
+      setCounterparts((data || []).map(c => ({ ...c, kind: 'client' })))
+      return
+    }
+    const [{ data: clients }, { data: guests }] = await Promise.all([
+      supabase.from('hhf_profiles').select('id, full_name').eq('role', 'client').eq('status', 'active').order('full_name'),
+      supabase.from('hhf_guest_profiles').select('id, full_name').eq('app', 'hhf').order('full_name'),
+    ])
+    const combined = [
+      ...(clients || []).map(c => ({ ...c, kind: 'client', label: c.full_name })),
+      ...(guests  || []).map(g => ({ ...g, kind: 'guest',  label: `${g.full_name || 'Anonymous'} (Guest)` })),
+    ]
+    setCounterparts(combined)
   }, [profile, role])
 
   useEffect(() => { load(); loadCounterparts() }, [load, loadCounterparts])
@@ -448,9 +468,17 @@ export default function Appointments() {
       return 'That time slot conflicts with an existing appointment. Please choose a different time.'
     }
 
+    // form.client_id may refer to either a registered client (hhf_profiles)
+    // or a guest visitor (hhf_guest_profiles) — form.clientKind tells us
+    // which. client_id is foreign-keyed to hhf_profiles only, so a guest's
+    // id must go in guest_client_id instead, same fix already applied to
+    // the public chat's own booking flow.
+    const isGuestBooking = role !== 'client' && form.clientKind === 'guest'
+
     const payload = {
       staff_id:         role === 'client' ? form.staff_id : profile.id,
-      client_id:        role === 'client' ? profile.id : form.client_id,
+      client_id:        role === 'client' ? profile.id : (isGuestBooking ? null : form.client_id),
+      guest_client_id:  isGuestBooking ? form.client_id : null,
       scheduled_at:     start.toISOString(),
       duration_minutes: form.duration_minutes,
       service_type:     form.service_type || null,
