@@ -10,6 +10,7 @@ import PendingActivation from './pages/auth/PendingActivation'
 
 import AdminDashboard   from './pages/admin/Dashboard'
 import StaffDashboard   from './pages/staff/Dashboard'
+import StaffClients     from './pages/staff/Clients'
 import ClientDashboard  from './pages/client/Dashboard'
 import ComingSoon       from './pages/shared/ComingSoon'
 import Messaging        from './pages/shared/Messaging'
@@ -56,7 +57,7 @@ export default function App() {
           {/* Staff routes */}
           <Route element={<ProtectedRoute allowedRoles={['staff', 'admin']} />}>
             <Route path="/staff"                  element={<StaffDashboard />} />
-            <Route path="/staff/clients"          element={<ComingSoon title="My Clients" />} />
+            <Route path="/staff/clients"          element={<StaffClients />} />
             <Route path="/staff/appointments"     element={<Appointments />} />
             <Route path="/staff/messages"         element={<Messaging />} />
             <Route path="/staff/documents"        element={<Documents />} />
