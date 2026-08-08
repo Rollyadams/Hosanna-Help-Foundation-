@@ -113,11 +113,24 @@ export default function AppShell({ children }) {
   // Staff/admin sessions previously never expired — Supabase's
   // autoRefreshToken keeps a session alive indefinitely regardless of
   // activity, so someone could stay logged in on a shared/borrowed device
-  // for days. After INACTIVITY_TIMEOUT_MS of no interaction, sign out
-  // automatically, with a warning shown WARNING_BEFORE_MS before it happens
-  // so nobody is kicked out without notice mid-task.
-  const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000  // 15 minutes — tightened from 30 to match a stricter security posture appropriate for an NGO handling visitor help-seeking data
-  const WARNING_BEFORE_MS     = 60 * 1000        // warn 60s before logout
+  // for days (confirmed: a session left overnight was still active the
+  // next night).
+  //
+  // A pure countdown timer can't fix this by itself — it only runs while
+  // the tab is actively executing JS, and stops the moment the phone locks
+  // or the app is backgrounded, exactly like every other client-side timer
+  // we ran into today (the away-message timer, the heartbeat, etc). The
+  // fix is a CHECKPOINT system instead of a continuously-running clock:
+  // record a timestamp on every activity (and right before backgrounding),
+  // then the moment the app is reopened — whether that's 2 minutes or 12
+  // hours later — immediately compare against that stored timestamp and
+  // force logout right then if too much time has passed. This doesn't
+  // depend on any code running *during* the gap, only at the two
+  // checkpoints (going away, coming back), which is what makes it reliable
+  // even through a locked phone overnight.
+  const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000  // 15 minutes
+  const WARNING_BEFORE_MS     = 60 * 1000        // warn 60s before logout, while actively open
+  const LAST_ACTIVE_KEY = 'hhf_last_active_at'
   const [showTimeoutWarning, setShowTimeoutWarning] = useState(false)
   const [warningSecondsLeft, setWarningSecondsLeft] = useState(60)
   const inactivityTimerRef = useRef(null)
@@ -142,15 +155,26 @@ export default function AppShell({ children }) {
     }
   }, [])
 
-  // Reset the inactivity clock whenever the person actually does something.
-  // Only runs for logged-in staff/admin/client — no point tracking
-  // inactivity on public pages with no session to protect. Previously,
-  // Supabase's autoRefreshToken kept sessions alive indefinitely regardless
-  // of activity, so someone could stay logged in on a shared/borrowed
-  // device for days (confirmed: a session left overnight was still active
-  // the next night).
   useEffect(() => {
     if (!profile) return
+
+    function recordActivity() {
+      localStorage.setItem(LAST_ACTIVE_KEY, String(Date.now()))
+    }
+
+    // The actual fix: check elapsed time the instant the app becomes
+    // visible again (covers phone unlock, switching back from another app,
+    // or a fresh page load) — this catches the overnight case that a
+    // running timer alone could never catch.
+    function checkForStaleSession() {
+      const last = localStorage.getItem(LAST_ACTIVE_KEY)
+      if (last && Date.now() - Number(last) > INACTIVITY_TIMEOUT_MS) {
+        handleSignOut()
+        return true
+      }
+      recordActivity()
+      return false
+    }
 
     function clearTimers() {
       if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current)
@@ -166,24 +190,49 @@ export default function AppShell({ children }) {
       }, 1000)
     }
 
-    function resetTimer() {
+    // Still run a live timer too, for the common case of someone leaving
+    // an unlocked, active tab open on their desk — this gives the warning
+    // modal a chance to appear rather than an instant, silent logout.
+    function resetLiveTimer() {
       clearTimers()
       setShowTimeoutWarning(false)
       warningTimerRef.current = setTimeout(startWarningCountdown, INACTIVITY_TIMEOUT_MS - WARNING_BEFORE_MS)
-      inactivityTimerRef.current = setTimeout(() => {
-        handleSignOut()
-      }, INACTIVITY_TIMEOUT_MS)
+      inactivityTimerRef.current = setTimeout(handleSignOut, INACTIVITY_TIMEOUT_MS)
     }
 
+    function handleActivity() {
+      recordActivity()
+      resetLiveTimer()
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'visible') {
+        // The critical checkpoint — runs the moment the tab/app comes back,
+        // regardless of how long it was away for.
+        if (!checkForStaleSession()) resetLiveTimer()
+      } else {
+        // Record the moment right before backgrounding too, as a second
+        // checkpoint in case activity events alone missed the last update.
+        recordActivity()
+      }
+    }
+
+    // On mount (fresh load, or reopening a previously-backgrounded tab),
+    // immediately check before doing anything else.
+    if (!checkForStaleSession()) resetLiveTimer()
+
     const activityEvents = ['pointerdown', 'keydown', 'touchstart', 'scroll']
-    activityEvents.forEach(evt => window.addEventListener(evt, resetTimer))
-    resetTimer() // start the clock as soon as this mounts
+    activityEvents.forEach(evt => window.addEventListener(evt, handleActivity))
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('pageshow', handleVisibilityChange) // covers back-forward cache restores on some browsers
 
     return () => {
       clearTimers()
-      activityEvents.forEach(evt => window.removeEventListener(evt, resetTimer))
+      activityEvents.forEach(evt => window.removeEventListener(evt, handleActivity))
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('pageshow', handleVisibilityChange)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- INACTIVITY_TIMEOUT_MS/WARNING_BEFORE_MS are constants that never change, and handleSignOut is stable in practice; including them would only cause needless effect re-runs
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- INACTIVITY_TIMEOUT_MS/WARNING_BEFORE_MS/LAST_ACTIVE_KEY are constants that never change, and handleSignOut is stable in practice; including them would only cause needless effect re-runs
   }, [profile])
 
   async function handleSignOut() {
