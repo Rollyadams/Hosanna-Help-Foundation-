@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { useAuth } from '../../context/AuthContext'
+import { useAuth, LAST_ACTIVE_KEY } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import HHFLogo from '../ui/HHFLogo'
 
@@ -130,7 +130,6 @@ export default function AppShell({ children }) {
   // even through a locked phone overnight.
   const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000  // 15 minutes
   const WARNING_BEFORE_MS     = 60 * 1000        // warn 60s before logout, while actively open
-  const LAST_ACTIVE_KEY = 'hhf_last_active_at'
   const [showTimeoutWarning, setShowTimeoutWarning] = useState(false)
   const [warningSecondsLeft, setWarningSecondsLeft] = useState(60)
   const inactivityTimerRef = useRef(null)
