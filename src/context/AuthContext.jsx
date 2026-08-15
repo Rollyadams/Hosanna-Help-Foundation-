@@ -11,6 +11,10 @@ const AuthContext = createContext(null)
 export const HEARTBEAT_INTERVAL_MS = 45 * 1000       // how often we write a heartbeat
 export const ONLINE_STALE_AFTER_MS  = 90 * 1000       // how old a heartbeat can be before we treat them as offline
 
+// Shared with AppShell.jsx's inactivity checkpoint system. Defined here
+// (not duplicated in AppShell) so both places always agree on the same key.
+export const LAST_ACTIVE_KEY = 'hhf_last_active_at'
+
 export function AuthProvider({ children }) {
   const [user,    setUser]    = useState(null)
   const [profile, setProfile] = useState(null)
@@ -25,7 +29,18 @@ export function AuthProvider({ children }) {
       if (session?.user) fetchProfile(session.user.id)
       else setLoading(false)
     })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Reset the inactivity checkpoint the moment a real, fresh sign-in
+      // happens — otherwise a leftover timestamp from a much earlier
+      // session (e.g. from testing an overnight-idle scenario) could still
+      // be sitting in localStorage, making AppShell's checkpoint check
+      // immediately conclude "this has been idle for hours" and sign the
+      // person straight back out, seconds after they just logged in. This
+      // was confirmed happening specifically in the browser where that
+      // earlier stale-session testing took place.
+      if (event === 'SIGNED_IN') {
+        localStorage.setItem(LAST_ACTIVE_KEY, String(Date.now()))
+      }
       setUser(session?.user ?? null)
       setProfile(null)
       if (session?.user) {
