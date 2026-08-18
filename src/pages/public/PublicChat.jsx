@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { supabase } from '../../lib/supabase'
 import { assignStaffForNewConversation, notifyStaffOfConversation, escalateConversation, AWAY_MESSAGE_MINUTES } from '../../lib/roster'
 import { joinConversationPresence, leaveConversationPresence, broadcastTyping, isViewerPresent } from '../../lib/presence'
+import { localDateStr } from '../../lib/date'
 
 function timeStr(ts) {
   return new Date(ts).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })
@@ -691,7 +692,7 @@ function ChatWindow({ visitor, convoId }) {
           <div className="space-y-2">
             <input
               type="date"
-              min={new Date().toISOString().split('T')[0]}
+              min={localDateStr()}
               className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
               value={bookingForm.date}
               onChange={e => setBookingForm(f => ({ ...f, date: e.target.value }))}
