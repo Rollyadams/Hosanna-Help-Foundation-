@@ -99,6 +99,14 @@ export default function Messaging() {
   const [closingSaving, setClosingSaving] = useState(false)
   const [closeError, setCloseError]       = useState('')
   const [visitorTyping, setVisitorTyping] = useState(false)
+  // Registered users (staff/client) get a real online_status heartbeat, but
+  // guest visitors don't authenticate, so hhf_guest_profiles has no such
+  // column — buildSenderMap() above hardcodes every visitor to 'offline'.
+  // The presence channel below is the ONLY live signal for whether a
+  // visitor is actually looking at this conversation right now, so the
+  // Online/Offline label for visitors must come from here, not from
+  // otherUser.online_status (which is permanently 'offline' for them).
+  const [visitorPresent, setVisitorPresent] = useState(false)
   const presenceChannelRef = useRef(null)
   const typingTimeoutRef   = useRef(null)
   const [messages, setMessages]           = useState([])
@@ -319,10 +327,15 @@ export default function Messaging() {
 
     // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting typing state when switching to a newly-opened conversation, same pattern used elsewhere in this file
     setVisitorTyping(false)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- same reset pattern as visitorTyping above
+    setVisitorPresent(false)
     const channel = joinConversationPresence(
       activeConvo.id,
       { id: profile.id, role: 'staff' },
       {
+        onPresenceChange: viewers => {
+          setVisitorPresent(viewers.some(v => v.role === 'visitor'))
+        },
         onTyping: ({ role, typing }) => {
           if (role !== 'visitor') return
           setVisitorTyping(typing)
@@ -341,6 +354,7 @@ export default function Messaging() {
       presenceChannelRef.current = null
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
       setVisitorTyping(false)
+      setVisitorPresent(false)
     }
   }, [activeConvo?.id, profile])
 
@@ -578,11 +592,11 @@ export default function Messaging() {
                 onClick={() => { setActiveConvo(null); stopPolling(); window.history.replaceState(null, '', '?') }}>
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
               </button>
-              <Avatar name={otherUser?.full_name} id={otherUser?.id || ''} online={otherUser?.online_status === 'online'} />
+              <Avatar name={otherUser?.full_name} id={otherUser?.id || ''} online={otherUser?.role === 'visitor' ? visitorPresent : otherUser?.online_status === 'online'} />
               <div className="flex-1 min-w-0">
                 <div className="font-semibold text-sm text-gray-900">{otherUser?.full_name}</div>
-                <div className={`text-xs ${otherUser?.online_status === 'online' ? 'text-green-500' : 'text-gray-400'}`}>
-                  {otherUser?.online_status === 'online' ? '● Online' : '○ Offline'}
+                <div className={`text-xs ${(otherUser?.role === 'visitor' ? visitorPresent : otherUser?.online_status === 'online') ? 'text-green-500' : 'text-gray-400'}`}>
+                  {(otherUser?.role === 'visitor' ? visitorPresent : otherUser?.online_status === 'online') ? '● Online' : '○ Offline'}
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
@@ -747,7 +761,7 @@ export default function Messaging() {
               </button>
             </div>
             <div className="p-4 flex flex-col items-center">
-              <Avatar name={otherUser.full_name} id={otherUser.id || ''} size="lg" online={otherUser.online_status === 'online'} />
+              <Avatar name={otherUser.full_name} id={otherUser.id || ''} size="lg" online={otherUser.role === 'visitor' ? visitorPresent : otherUser.online_status === 'online'} />
               <div className="mt-3 font-semibold text-gray-900">{otherUser.full_name}</div>
               <span className={`mt-1 text-xs px-2 py-0.5 rounded-full font-medium capitalize ${
                 otherUser.role === 'client'  ? 'bg-hhf-blue-pale text-hhf-blue' :
