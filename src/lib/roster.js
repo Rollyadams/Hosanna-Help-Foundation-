@@ -28,14 +28,25 @@ export function currentTimeStr(date = new Date()) {
 }
 
 // Monday of the current week, formatted the same way Roster.jsx does when
-// saving (YYYY-MM-DD, local Monday 00:00), so we look up the correct row.
+// saving (YYYY-MM-DD, local Monday), so we look up the correct row.
+//
+// IMPORTANT: do NOT use .toISOString() here. It converts to UTC first —
+// for any timezone ahead of UTC (e.g. Nigeria, WAT = UTC+1), local midnight
+// Monday becomes 23:00 UTC *Sunday*, so this would return Sunday's date
+// every single time, regardless of what time of day it's called. That
+// silently never matched the week_start values Roster.jsx actually saves
+// (it correctly uses local date parts, not toISOString — see that file's
+// own comment on the same bug). Build the string from local components
+// instead, exactly like Roster.jsx's toDateStr does.
 export function currentWeekStart(date = new Date()) {
   const d = new Date(date)
   const day = d.getDay()
   const diff = (day === 0 ? -6 : 1 - day)
   d.setDate(d.getDate() + diff)
-  d.setHours(0, 0, 0, 0)
-  return d.toISOString().split('T')[0]
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${dd}`
 }
 
 /**
@@ -116,14 +127,23 @@ export async function isStaffOnDuty(staffId) {
   const today = currentDayKey(now)
   const nowTime = currentTimeStr(now)
 
-  const { data: shift } = await supabase
+  // Plain select + take the most recent row, NOT .maybeSingle(). If more
+  // than one row ever exists for this staff_id/week_start/day combo (e.g.
+  // no enforced unique constraint in the DB, and the new per-toggle
+  // auto-save inserts instead of updating an existing row), .maybeSingle()
+  // throws on 2+ rows and the badge would wrongly read as "no shift found"
+  // → stuck on Off Duty even with a valid saved slot. getAvailableStaffIds
+  // above never had this problem because it already used a plain select.
+  const { data: shifts } = await supabase
     .from('hhf_roster')
-    .select('start_time, end_time, is_available')
+    .select('start_time, end_time, is_available, updated_at')
     .eq('staff_id', staffId)
     .eq('week_start', weekStart)
     .eq('day', today)
-    .maybeSingle()
+    .order('updated_at', { ascending: false })
+    .limit(1)
 
+  const shift = shifts?.[0]
   if (!shift) return false
   if (shift.is_available === false) return false
   const start = shift.start_time?.slice(0, 5)
