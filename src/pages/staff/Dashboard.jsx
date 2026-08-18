@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
 import AppShell from '../../components/layout/AppShell'
+import { localDateStr } from '../../lib/date'
 
 export default function StaffDashboard() {
   const { profile } = useAuth()
@@ -13,7 +14,7 @@ export default function StaffDashboard() {
   useEffect(() => {
     if (!profile) return
     async function load() {
-      const today = new Date().toISOString().split('T')[0]
+      const today = localDateStr()
       const [{ data: a }, { data: c }] = await Promise.all([
         supabase.from('hhf_appointments').select('*, client:client_id(full_name)')
           .eq('staff_id', profile.id).gte('scheduled_at', today).order('scheduled_at').limit(5),
