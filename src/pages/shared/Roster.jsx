@@ -115,9 +115,12 @@ function TimeInput({ value, onChange, disabled }) {
 function StaffRoster({ staffId, weekStart, readOnly = false }) {
   const { profile } = useAuth()
   const [slots, setSlots]   = useState({})
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved]   = useState(false)
   const [loading, setLoading] = useState(true)
+  // Per-day save status, keyed by day: 'saving' | 'saved' | undefined.
+  // Replaces the old single page-level Save button — each toggle/time
+  // change now commits immediately on its own, so staff see one row
+  // confirm at a time instead of having to remember to hit Save.
+  const [rowStatus, setRowStatus] = useState({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -137,32 +140,45 @@ function StaffRoster({ staffId, weekStart, readOnly = false }) {
 
   useEffect(() => { load() }, [load])
 
-  function updateSlot(day, field, value) {
-    setSlots(s => ({ ...s, [day]: { ...s[day], [field]: value } }))
-  }
-
   const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/
 
   function normalizeTime(value, fallback) {
     return TIME_RE.test(value) ? value : fallback
   }
 
-  async function save() {
-    setSaving(true)
-    const rows = DAYS.map(d => ({
+  function flashRowStatus(day, status) {
+    setRowStatus(s => ({ ...s, [day]: status }))
+    if (status === 'saved') {
+      setTimeout(() => {
+        setRowStatus(s => (s[day] === 'saved' ? { ...s, [day]: undefined } : s))
+      }, 1500)
+    }
+  }
+
+  // Commits exactly one day's slot to hhf_roster. Called immediately on
+  // toggle flip (no separate Save step) and on time-field blur — this
+  // replaces the old pattern of editing everything locally and only
+  // persisting once a page-level Save button was pressed, which staff
+  // could forget to tap.
+  async function saveSlot(day, patch) {
+    const merged = { ...(slots[day] || DEFAULT_SLOT), ...patch }
+    setSlots(s => ({ ...s, [day]: merged }))
+    if (readOnly) return
+
+    flashRowStatus(day, 'saving')
+    const row = {
       staff_id:     staffId,
       week_start:   weekStart,
-      day:          d.key,
-      start_time:   normalizeTime(slots[d.key]?.start_time, '09:00'),
-      end_time:     normalizeTime(slots[d.key]?.end_time, '17:00'),
-      is_available: slots[d.key]?.is_available ?? true,
-      note:         slots[d.key]?.note || null,
+      day,
+      start_time:   normalizeTime(merged.start_time, '09:00'),
+      end_time:     normalizeTime(merged.end_time, '17:00'),
+      is_available: merged.is_available ?? true,
+      note:         merged.note || null,
       created_by:   profile.id,
       updated_at:   new Date().toISOString(),
-    }))
-    await supabase.from('hhf_roster').upsert(rows, { onConflict: 'staff_id,week_start,day' })
-    setSaving(false); setSaved(true)
-    setTimeout(() => setSaved(false), 2500)
+    }
+    const { error } = await supabase.from('hhf_roster').upsert(row, { onConflict: 'staff_id,week_start,day' })
+    flashRowStatus(day, error ? undefined : 'saved')
   }
 
   if (loading) return <div className="py-6 text-center text-sm text-gray-400 animate-pulse">Loading roster…</div>
@@ -172,36 +188,37 @@ function StaffRoster({ staffId, weekStart, readOnly = false }) {
       <div className="space-y-2">
         {DAYS.map(({ key, label }) => {
           const slot = slots[key] || DEFAULT_SLOT
+          const status = rowStatus[key]
           return (
             <div key={key} className={`flex items-center gap-3 p-3 rounded-xl transition-colors ${slot.is_available ? 'bg-gray-50' : 'bg-white opacity-50'}`}>
               <span className="text-xs font-semibold text-gray-500 w-8 flex-shrink-0">{label}</span>
               <Toggle
                 checked={slot.is_available}
-                onChange={v => !readOnly && updateSlot(key, 'is_available', v)}
+                onChange={v => !readOnly && saveSlot(key, { is_available: v })}
               />
               {slot.is_available ? (
                 <div className="flex items-center gap-2 flex-1">
                 <div className="flex flex-col gap-1 flex-1">
                   <TimeInput value={slot.start_time} disabled={readOnly}
-                    onChange={v => updateSlot(key, 'start_time', v)} />
+                    onChange={v => saveSlot(key, { start_time: v })} />
                   <TimeInput value={slot.end_time} disabled={readOnly}
-                    onChange={v => updateSlot(key, 'end_time', v)} />
+                    onChange={v => saveSlot(key, { end_time: v })} />
                 </div>
                 </div>
               ) : (
                 <span className="text-xs text-gray-400 flex-1">Day off</span>
               )}
+              {/* Per-row save feedback — replaces the old page-level Save
+                  button/toast. Reserved-width so rows don't shift as the
+                  status appears/disappears. */}
+              <span className="w-12 flex-shrink-0 text-right text-[10px] font-medium">
+                {status === 'saving' && <span className="text-gray-400">Saving…</span>}
+                {status === 'saved' && <span className="text-green-600">Saved ✓</span>}
+              </span>
             </div>
           )
         })}
       </div>
-
-      {!readOnly && (
-        <button onClick={save} disabled={saving}
-          className="mt-4 w-full py-2.5 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors">
-          {saved ? '✅ Saved!' : saving ? 'Saving…' : 'Save Roster'}
-        </button>
-      )}
     </div>
   )
 }
