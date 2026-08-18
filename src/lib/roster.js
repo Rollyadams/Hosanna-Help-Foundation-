@@ -14,11 +14,11 @@ const ONLINE_STALE_AFTER_MS = 90 * 1000
 
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
 
-function currentDayKey(date = new Date()) {
+export function currentDayKey(date = new Date()) {
   return DAY_KEYS[date.getDay()]
 }
 
-function currentTimeStr(date = new Date()) {
+export function currentTimeStr(date = new Date()) {
   return date.toTimeString().slice(0, 5) // 'HH:MM' — deliberately uses the
   // browser/server's local time, same as the rest of this file. If staff
   // enter roster hours assuming West Africa Time but the environment
@@ -29,7 +29,7 @@ function currentTimeStr(date = new Date()) {
 
 // Monday of the current week, formatted the same way Roster.jsx does when
 // saving (YYYY-MM-DD, local Monday 00:00), so we look up the correct row.
-function currentWeekStart(date = new Date()) {
+export function currentWeekStart(date = new Date()) {
   const d = new Date(date)
   const day = d.getDay()
   const diff = (day === 0 ? -6 : 1 - day)
@@ -94,6 +94,42 @@ export async function getAvailableStaffIds() {
     if (!start || !end) return false
     return nowTime >= start && nowTime <= end
   })
+}
+
+/**
+ * Checks whether a single staff/admin member is within their scheduled
+ * working hours right now, per today's row in hhf_roster for the current
+ * week. This is the same "is this person on shift" comparison used inside
+ * getAvailableStaffIds, pulled out standalone so UI (e.g. an on-duty badge)
+ * can call it for just one person without also requiring online_status /
+ * last_seen_at — those are about live app presence, not the schedule.
+ *
+ * Returns false (not on duty) if there's no roster row for today, or the
+ * day is explicitly marked unavailable, or the current time falls outside
+ * the saved start/end window. A missing schedule is treated the same way
+ * as getAvailableStaffIds treats it — NOT as "on call 24/7."
+ */
+export async function isStaffOnDuty(staffId) {
+  if (!staffId) return false
+  const now = new Date()
+  const weekStart = currentWeekStart(now)
+  const today = currentDayKey(now)
+  const nowTime = currentTimeStr(now)
+
+  const { data: shift } = await supabase
+    .from('hhf_roster')
+    .select('start_time, end_time, is_available')
+    .eq('staff_id', staffId)
+    .eq('week_start', weekStart)
+    .eq('day', today)
+    .maybeSingle()
+
+  if (!shift) return false
+  if (shift.is_available === false) return false
+  const start = shift.start_time?.slice(0, 5)
+  const end = shift.end_time?.slice(0, 5)
+  if (!start || !end) return false
+  return nowTime >= start && nowTime <= end
 }
 
 /**
