@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
 import AppShell from '../../components/layout/AppShell'
+import { localDateStr } from '../../lib/date'
 
 export default function AdminDashboard() {
   const { profile } = useAuth()
@@ -12,7 +13,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     async function load() {
-      const today = new Date().toISOString().split('T')[0]
+      const today = localDateStr()
 
       const [{ count: clients }, { data: appts }] = await Promise.all([
         supabase.from('hhf_profiles').select('*', { count: 'exact', head: true }).eq('role', 'client').eq('status', 'active'),
