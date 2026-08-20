@@ -455,14 +455,27 @@ export default function Messaging() {
     if (activeConvo?.id === convoId) setActiveConvo(c => ({ ...c, priority }))
   }
 
+  // "No"/"None"/"N/A"-type answers typed into the follow-up field mean the
+  // same thing as leaving it blank — normalizing here means a stray "No"
+  // never reaches the database as a false "needs attention" flag in the
+  // first place, on top of the read-time filtering already in
+  // Reports.jsx/Dashboard.jsx. Kept in sync with NO_ACTION_PHRASES there.
+  const NO_ACTION_PHRASES = new Set(['no', 'none', 'n/a', 'na', 'nil', 'nothing'])
+  function normalizeFollowUp(text) {
+    const trimmed = (text || '').trim()
+    if (!trimmed || NO_ACTION_PHRASES.has(trimmed.toLowerCase())) return null
+    return trimmed
+  }
+
   async function closeConversation() {
     if (!activeConvo) return
     setClosingSaving(true)
     try {
+      const normalizedFollowUp = normalizeFollowUp(closeReport.follow_up)
       const { error: updErr } = await supabase.from('hhf_conversations').update({
         status:       'closed',
         staff_report: closeReport.staff_report || null,
-        follow_up:    closeReport.follow_up    || null,
+        follow_up:    normalizedFollowUp,
         closed_at:    new Date().toISOString(),
         closed_by:    profile.id,
       }).eq('id', activeConvo.id)
@@ -472,7 +485,7 @@ export default function Messaging() {
       await supabase.from('hhf_audit_logs').insert({
         actor_id: profile.id, action: 'conversation_closed',
         target_type: 'conversation', target_id: activeConvo.id,
-        details: { report: closeReport.staff_report, follow_up: closeReport.follow_up }
+        details: { report: closeReport.staff_report, follow_up: normalizedFollowUp }
       }).catch(() => {})
 
       setConversations(prev => prev.map(c => c.id === activeConvo.id ? { ...c, status: 'closed' } : c))
@@ -835,11 +848,11 @@ export default function Messaging() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Follow-up Actions <span className="text-gray-400">(optional)</span></label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Follow-up Actions <span className="text-gray-400">(optional — leave blank if none needed)</span></label>
                 <textarea
                   rows={2}
                   className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                  placeholder="Any actions needed? e.g. Schedule appointment, refer to specialist…"
+                  placeholder="Leave blank if nothing further is needed. Otherwise describe the action, e.g. Schedule appointment, refer to specialist…"
                   value={closeReport.follow_up}
                   onChange={e => setCloseReport(r => ({ ...r, follow_up: e.target.value }))}
                 />
