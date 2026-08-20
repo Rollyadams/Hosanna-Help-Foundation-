@@ -7,24 +7,70 @@ import { localDateStr } from '../../lib/date'
 
 export default function AdminDashboard() {
   const { profile } = useAuth()
-  const [stats, setStats] = useState({ clients: 0, todayAppts: 0, pendingAppts: 0, openCases: 0 })
+  const [stats, setStats] = useState({ clients: 0, todayAppts: 0, todayPending: 0, pendingAppts: 0, openCases: 0 })
   const [recentAppts, setRecentAppts] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function load() {
       const today = localDateStr()
+      const tomorrow = new Date()
+      tomorrow.setDate(tomorrow.getDate() + 1)
+      const tomorrowStr = localDateStr(tomorrow)
 
-      const [{ count: clients }, { data: appts }] = await Promise.all([
-        supabase.from('hhf_profiles').select('*', { count: 'exact', head: true }).eq('role', 'client').eq('status', 'active'),
-        supabase.from('hhf_appointments').select('*, client:client_id(full_name), staff:staff_id(full_name)').gte('scheduled_at', today).order('scheduled_at').limit(5),
+      // Previously these three counts were all derived by filtering inside
+      // a SINGLE query that fetched only 5 upcoming appointments (meant for
+      // the preview table below, not for counting). That silently
+      // undercounted "Today's Appointments" and "Pending Approval" the
+      // moment there were more than 5 appointments on the books total, and
+      // "Open Cases" was never wired up at all — just hardcoded to 0.
+      //
+      // Now: four independent exact counts (head: true — no rows actually
+      // transferred, just the count) plus one small separate fetch for the
+      // preview list. "Open Cases" = closed conversations where staff left
+      // a follow_up note when closing — the closest real definition that
+      // exists in the data today. There's no separate "resolved" flag on a
+      // follow_up yet, so this counts every case ever flagged, not just
+      // ones still outstanding — worth knowing if this number looks higher
+      // than expected.
+      const [
+        { count: clients },
+        { count: todayApptsCount },
+        { count: todayPendingCount },
+        { count: pendingApptsCount },
+        { count: openCasesCount },
+        { data: recentList },
+      ] = await Promise.all([
+        supabase.from('hhf_profiles').select('*', { count: 'exact', head: true })
+          .eq('role', 'client').eq('status', 'active'),
+        supabase.from('hhf_appointments').select('*', { count: 'exact', head: true })
+          .gte('scheduled_at', today).lt('scheduled_at', tomorrowStr),
+        // Scoped specifically to today, for the "Today's Appointments" card
+        // subtitle — distinct from pendingApptsCount below, which is the
+        // all-time total shown on the separate "Pending Approval" card.
+        // Reusing the same number for both would now be misleading, since
+        // pendingApptsCount is no longer accidentally scoped to a 5-row
+        // preview batch that happened to only contain near-term dates.
+        supabase.from('hhf_appointments').select('*', { count: 'exact', head: true })
+          .gte('scheduled_at', today).lt('scheduled_at', tomorrowStr).eq('status', 'pending'),
+        supabase.from('hhf_appointments').select('*', { count: 'exact', head: true })
+          .eq('status', 'pending'),
+        supabase.from('hhf_conversations').select('*', { count: 'exact', head: true })
+          .eq('status', 'closed').not('follow_up', 'is', null).neq('follow_up', ''),
+        supabase.from('hhf_appointments')
+          .select('*, client:client_id(full_name), staff:staff_id(full_name)')
+          .gte('scheduled_at', today).lt('scheduled_at', tomorrowStr)
+          .order('scheduled_at').limit(5),
       ])
 
-      const todayAppts  = appts?.filter(a => a.scheduled_at?.startsWith(today)).length || 0
-      const pendingAppts = appts?.filter(a => a.status === 'pending').length || 0
-
-      setStats({ clients: clients || 0, todayAppts, pendingAppts, openCases: 0 })
-      setRecentAppts(appts || [])
+      setStats({
+        clients: clients || 0,
+        todayAppts: todayApptsCount || 0,
+        todayPending: todayPendingCount || 0,
+        pendingAppts: pendingApptsCount || 0,
+        openCases: openCasesCount || 0,
+      })
+      setRecentAppts(recentList || [])
       setLoading(false)
     }
     load()
@@ -52,7 +98,7 @@ export default function AdminDashboard() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           {[
             { label: 'Total Clients',        value: stats.clients,      color: 'hhf-blue',  sub: 'Active clients' },
-            { label: "Today's Appointments", value: stats.todayAppts, color: "hhf-gold", sub: stats.pendingAppts + " pending" },
+            { label: "Today's Appointments", value: stats.todayAppts, color: "hhf-gold", sub: stats.todayPending + " pending" },
             { label: 'Pending Approval',      value: stats.pendingAppts, color: 'hhf-green', sub: 'Appointments' },
             { label: 'Open Cases',            value: stats.openCases,    color: 'hhf-red',   sub: 'Require action' },
           ].map(s => (
