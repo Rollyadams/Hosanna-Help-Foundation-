@@ -1,10 +1,20 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../context/AuthContext'
 import AppShell from '../../components/layout/AppShell'
 
 function fmtDate(ts) {
   if (!ts) return '—'
   return new Date(ts).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+// A case only has a real "needs attention / resolved" state if staff
+// actually left a follow_up note when closing it — a report with no
+// follow-up isn't tracked as open or resolved, it's just a record with
+// nothing pending. Centralized here so the list, filters, and detail
+// modal can't drift out of sync on what counts as a real case.
+function hasFollowUp(r) {
+  return !!(r.follow_up && r.follow_up.trim())
 }
 
 async function buildPersonMap(ids) {
@@ -20,28 +30,32 @@ async function buildPersonMap(ids) {
 }
 
 export default function Reports() {
+  const { profile } = useAuth()
   const [reports, setReports]   = useState([])
   const [loading, setLoading]   = useState(true)
   const [search, setSearch]     = useState('')
   const [staffFilter, setStaffFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all') // all | needs_attention | resolved
   const [selected, setSelected] = useState(null)
+  const [resolving, setResolving] = useState(false)
 
   useEffect(() => {
     async function load() {
       const { data } = await supabase
         .from('hhf_conversations')
-        .select('id, status, category, staff_report, follow_up, closed_at, closed_by, participant_a, participant_b')
+        .select('id, status, category, staff_report, follow_up, closed_at, closed_by, participant_a, participant_b, follow_up_resolved, follow_up_resolved_at, follow_up_resolved_by')
         .eq('status', 'closed')
         .order('closed_at', { ascending: false })
 
       if (!data) { setLoading(false); return }
 
-      const ids = [...new Set(data.flatMap(c => [c.closed_by, c.participant_a, c.participant_b]).filter(Boolean))]
+      const ids = [...new Set(data.flatMap(c => [c.closed_by, c.participant_a, c.participant_b, c.follow_up_resolved_by]).filter(Boolean))]
       const people = await buildPersonMap(ids)
 
       const enriched = data.map(c => ({
         ...c,
         closed_by_person: people[c.closed_by] || null,
+        resolved_by_person: people[c.follow_up_resolved_by] || null,
         visitor: [people[c.participant_a], people[c.participant_b]].find(p => p?.role === 'visitor') || null,
       }))
 
@@ -51,19 +65,44 @@ export default function Reports() {
     load()
   }, [])
 
+  // Toggles follow_up_resolved on the currently selected case. Kept as a
+  // toggle (not a one-way action) so a case marked resolved by mistake, or
+  // one where the issue resurfaced, can be reopened without editing the
+  // database directly.
+  async function toggleResolved(report) {
+    setResolving(true)
+    const nowResolved = !report.follow_up_resolved
+    const patch = nowResolved
+      ? { follow_up_resolved: true, follow_up_resolved_at: new Date().toISOString(), follow_up_resolved_by: profile.id }
+      : { follow_up_resolved: false, follow_up_resolved_at: null, follow_up_resolved_by: null }
+
+    const { error } = await supabase.from('hhf_conversations').update(patch).eq('id', report.id)
+    if (!error) {
+      const resolved_by_person = nowResolved ? { id: profile.id, full_name: profile.full_name } : null
+      const updated = { ...report, ...patch, resolved_by_person }
+      setReports(prev => prev.map(r => r.id === report.id ? updated : r))
+      setSelected(updated)
+    }
+    setResolving(false)
+  }
+
   const staffOptions = [...new Map(
     reports.filter(r => r.closed_by_person).map(r => [r.closed_by, r.closed_by_person.full_name])
   ).entries()]
 
   const filtered = reports.filter(r => {
     const matchesStaff = staffFilter === 'all' || r.closed_by === staffFilter
+    const matchesStatus =
+      statusFilter === 'all' ? true :
+      statusFilter === 'needs_attention' ? (hasFollowUp(r) && !r.follow_up_resolved) :
+      statusFilter === 'resolved' ? (hasFollowUp(r) && r.follow_up_resolved) : true
     const q = search.toLowerCase()
     const matchesSearch = !q ||
       (r.staff_report || '').toLowerCase().includes(q) ||
       (r.follow_up || '').toLowerCase().includes(q) ||
       (r.category || '').toLowerCase().includes(q) ||
       (r.visitor?.full_name || '').toLowerCase().includes(q)
-    return matchesStaff && matchesSearch
+    return matchesStaff && matchesStatus && matchesSearch
   })
 
   return (
@@ -77,7 +116,7 @@ export default function Reports() {
         </div>
 
         {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-3 mb-5">
+        <div className="flex flex-col sm:flex-row gap-3 mb-3">
           <input
             value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search reports, follow-ups, category..."
@@ -88,6 +127,18 @@ export default function Reports() {
             <option value="all">All staff</option>
             {staffOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
           </select>
+        </div>
+        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-5 w-fit">
+          {[
+            { key: 'all', label: 'All' },
+            { key: 'needs_attention', label: 'Needs Attention' },
+            { key: 'resolved', label: 'Resolved' },
+          ].map(t => (
+            <button key={t.key} onClick={() => setStatusFilter(t.key)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${statusFilter === t.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+              {t.label}
+            </button>
+          ))}
         </div>
 
         {loading ? (
@@ -105,6 +156,11 @@ export default function Reports() {
                       {r.category && (
                         <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
                           {r.category}
+                        </span>
+                      )}
+                      {hasFollowUp(r) && (
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${r.follow_up_resolved ? 'bg-green-50 text-green-700' : 'bg-orange-50 text-orange-700'}`}>
+                          {r.follow_up_resolved ? '✓ Resolved' : '● Needs Attention'}
                         </span>
                       )}
                       <span className="text-sm font-medium text-gray-700">{r.visitor?.full_name || 'Unknown visitor'}</span>
@@ -151,6 +207,28 @@ export default function Reports() {
                 <div className="text-xs font-semibold text-gray-500 mb-1">Follow-up</div>
                 <p className="text-sm text-gray-700 whitespace-pre-wrap">{selected.follow_up || '—'}</p>
               </div>
+              {hasFollowUp(selected) && (
+                <div className="pt-2 border-t border-gray-100">
+                  {selected.follow_up_resolved ? (
+                    <p className="text-xs text-green-700 mb-2">
+                      ✓ Resolved {fmtDate(selected.follow_up_resolved_at)} by {selected.resolved_by_person?.full_name || 'Unknown'}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-orange-700 mb-2">● Still needs attention</p>
+                  )}
+                  <button
+                    onClick={() => toggleResolved(selected)}
+                    disabled={resolving}
+                    className={`w-full py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 ${
+                      selected.follow_up_resolved
+                        ? 'border border-gray-200 text-gray-600 hover:bg-gray-50'
+                        : 'bg-green-600 text-white hover:bg-green-700'
+                    }`}
+                  >
+                    {resolving ? 'Saving…' : selected.follow_up_resolved ? 'Reopen this case' : 'Mark as resolved'}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
