@@ -57,8 +57,18 @@ export default function AdminDashboard() {
         // hasn't been marked resolved yet — now that follow_up_resolved
         // exists, this is a genuinely accurate "still needs attention"
         // count, not just "was ever flagged" like before.
+        //
+        // Also excludes common "no action needed" answers (No/None/N/A/
+        // Nil/Nothing) typed into the follow-up field instead of leaving
+        // it blank — same NO_ACTION_PHRASES logic as Reports.jsx's
+        // hasFollowUp(), kept in sync so this count and that page's
+        // "Needs Attention" tab never disagree.
         supabase.from('hhf_conversations').select('*', { count: 'exact', head: true })
-          .eq('status', 'closed').not('follow_up', 'is', null).neq('follow_up', '').eq('follow_up_resolved', false),
+          .eq('status', 'closed').not('follow_up', 'is', null).neq('follow_up', '')
+          .not('follow_up', 'ilike', 'no').not('follow_up', 'ilike', 'none')
+          .not('follow_up', 'ilike', 'n/a').not('follow_up', 'ilike', 'na')
+          .not('follow_up', 'ilike', 'nil').not('follow_up', 'ilike', 'nothing')
+          .eq('follow_up_resolved', false),
         supabase.from('hhf_appointments')
           .select('*, client:client_id(full_name), staff:staff_id(full_name)')
           .gte('scheduled_at', today).lt('scheduled_at', tomorrowStr)
