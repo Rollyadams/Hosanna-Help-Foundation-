@@ -24,30 +24,39 @@ function timeAgo(ts) {
 
 const ACTION_CONFIG = {
   // Appointments
-  appointment_created:   { label: 'Appointment booked',    color: 'bg-blue-50 text-blue-700',   dot: 'bg-blue-500',   icon: '📅' },
-  appointment_confirmd:  { label: 'Appointment confirmed', color: 'bg-green-50 text-green-700', dot: 'bg-green-500',  icon: '✅' },
-  appointment_cancelled: { label: 'Appointment cancelled', color: 'bg-gray-100 text-gray-600',  dot: 'bg-gray-400',   icon: '❌' },
-  appointment_completed: { label: 'Appointment completed', color: 'bg-teal-50 text-teal-700',   dot: 'bg-teal-500',   icon: '🏁' },
-  appointment_no_showed: { label: 'No show recorded',      color: 'bg-red-50 text-red-600',     dot: 'bg-red-500',    icon: '🚫' },
-  // Messages
-  message_sent:          { label: 'Message sent',          color: 'bg-purple-50 text-purple-700', dot: 'bg-purple-500', icon: '💬' },
+  appointment_created:    { label: 'Appointment booked',     color: 'bg-blue-50 text-blue-700',   dot: 'bg-blue-500',   icon: '📅' },
+  appointment_confirmed:  { label: 'Appointment confirmed',  color: 'bg-green-50 text-green-700', dot: 'bg-green-500',  icon: '✅' },
+  appointment_cancelled:  { label: 'Appointment cancelled',  color: 'bg-gray-100 text-gray-600',  dot: 'bg-gray-400',   icon: '❌' },
+  appointment_completed:  { label: 'Appointment completed',  color: 'bg-teal-50 text-teal-700',   dot: 'bg-teal-500',   icon: '🏁' },
+  appointment_no_showed:  { label: 'No show recorded',       color: 'bg-red-50 text-red-600',     dot: 'bg-red-500',    icon: '🚫' },
+  appointment_reassigned: { label: 'Appointment reassigned', color: 'bg-orange-50 text-orange-700', dot: 'bg-orange-500', icon: '🔁' },
+  // Conversations / chat
+  conversation_reassigned:{ label: 'Chat reassigned',        color: 'bg-orange-50 text-orange-700', dot: 'bg-orange-500', icon: '🔁' },
+  conversation_closed:    { label: 'Conversation closed',    color: 'bg-gray-100 text-gray-600',  dot: 'bg-gray-400',   icon: '✔️' },
+  message_sent:           { label: 'Message sent',           color: 'bg-purple-50 text-purple-700', dot: 'bg-purple-500', icon: '💬' },
   // Users
-  user_updated:          { label: 'User updated',          color: 'bg-amber-50 text-amber-700', dot: 'bg-amber-500',  icon: '👤' },
-  user_activated:        { label: 'User activated',        color: 'bg-green-50 text-green-700', dot: 'bg-green-500',  icon: '✅' },
-  user_deactivated:      { label: 'User deactivated',      color: 'bg-gray-100 text-gray-600',  dot: 'bg-gray-400',   icon: '🔒' },
+  user_updated:           { label: 'User updated',           color: 'bg-amber-50 text-amber-700', dot: 'bg-amber-500',  icon: '👤' },
+  user_activated:         { label: 'User activated',         color: 'bg-green-50 text-green-700', dot: 'bg-green-500',  icon: '✅' },
+  user_deactivated:       { label: 'User deactivated',       color: 'bg-gray-100 text-gray-600',  dot: 'bg-gray-400',   icon: '🔒' },
+  profile_updated:        { label: 'Profile updated',        color: 'bg-amber-50 text-amber-700', dot: 'bg-amber-500',  icon: '👤' },
+  availability_updated:   { label: 'Availability updated',   color: 'bg-amber-50 text-amber-700', dot: 'bg-amber-500',  icon: '🗓️' },
   // Documents
-  document_uploaded:     { label: 'Document uploaded',     color: 'bg-indigo-50 text-indigo-700', dot: 'bg-indigo-500', icon: '📄' },
-  document_deleted:      { label: 'Document deleted',      color: 'bg-red-50 text-red-600',     dot: 'bg-red-400',    icon: '🗑️' },
+  document_uploaded:      { label: 'Document uploaded',      color: 'bg-indigo-50 text-indigo-700', dot: 'bg-indigo-500', icon: '📄' },
+  document_deleted:       { label: 'Document deleted',       color: 'bg-red-50 text-red-600',     dot: 'bg-red-400',    icon: '🗑️' },
   // Auth
-  login:                 { label: 'User logged in',        color: 'bg-gray-50 text-gray-600',   dot: 'bg-gray-400',   icon: '🔑' },
-  logout:                { label: 'User logged out',       color: 'bg-gray-50 text-gray-600',   dot: 'bg-gray-300',   icon: '👋' },
+  login:                  { label: 'User logged in',         color: 'bg-gray-50 text-gray-600',   dot: 'bg-gray-400',   icon: '🔑' },
+  logout:                 { label: 'User logged out',        color: 'bg-gray-50 text-gray-600',   dot: 'bg-gray-300',   icon: '👋' },
 }
 
+// No fuzzy/prefix matching here on purpose. It used to guess the "closest"
+// key by prefix (e.g. anything starting with "appointment_") and silently
+// show that guessed label even when it was wrong — which is exactly how
+// appointment_reassigned displayed as "Appointment booked" and, before the
+// typo fixes above, how cancelled/completed/confirmed events did too. An
+// unmatched action now falls back to its own raw text (readable, correct,
+// just unstyled) instead of borrowing a different event's label.
 function getConfig(action = '') {
-  if (ACTION_CONFIG[action]) return ACTION_CONFIG[action]
-  // Fuzzy match
-  const key = Object.keys(ACTION_CONFIG).find(k => action.includes(k.split('_')[0]))
-  return key ? ACTION_CONFIG[key] : { label: action.replace(/_/g, ' '), color: 'bg-gray-50 text-gray-600', dot: 'bg-gray-400', icon: '📋' }
+  return ACTION_CONFIG[action] || { label: action.replace(/_/g, ' '), color: 'bg-gray-50 text-gray-600', dot: 'bg-gray-400', icon: '📋' }
 }
 
 // ── ICONS ──────────────────────────────────────────────────
@@ -129,6 +138,21 @@ export default function AuditLog() {
   const [page, setPage]         = useState(0)
   const [total, setTotal]       = useState(0)
 
+  // Maps each filter tab to every action-prefix that should count as
+  // belonging to it. Plain `${actionFilter}%` prefix matching used to
+  // silently exclude real events whose action string doesn't start with
+  // the tab's own name — conversation_reassigned/conversation_closed
+  // never showed under "Message" (only message_ matched), profile_updated
+  // never showed under "User", and availability_updated matched nothing
+  // at all. Every action actually written anywhere in the app (see
+  // ACTION_CONFIG in this same file) now has a home in exactly one tab.
+  const GROUP_PREFIXES = {
+    appointment: ['appointment'],
+    message:     ['message', 'conversation'],
+    user:        ['user', 'profile', 'availability'],
+    document:    ['document'],
+    login:       ['login', 'logout'],
+  }
   const ACTION_GROUPS = ['all', 'appointment', 'message', 'user', 'document', 'login']
 
   const load = useCallback(async () => {
@@ -140,7 +164,10 @@ export default function AuditLog() {
       .order('created_at', { ascending: false })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
-    if (actionFilter !== 'all') q = q.ilike('action', `${actionFilter}%`)
+    if (actionFilter !== 'all') {
+      const prefixes = GROUP_PREFIXES[actionFilter] || [actionFilter]
+      q = q.or(prefixes.map(p => `action.ilike.${p}%`).join(','))
+    }
     if (search) q = q.or(`action.ilike.%${search}%,actor_id.eq.${search.length === 36 ? search : '00000000-0000-0000-0000-000000000000'}`)
 
     const { data, error: err, count } = await q
