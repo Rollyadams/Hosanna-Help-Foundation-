@@ -27,12 +27,10 @@ export default function AdminDashboard() {
       //
       // Now: four independent exact counts (head: true — no rows actually
       // transferred, just the count) plus one small separate fetch for the
-      // preview list. "Open Cases" = closed conversations where staff left
-      // a follow_up note when closing — the closest real definition that
-      // exists in the data today. There's no separate "resolved" flag on a
-      // follow_up yet, so this counts every case ever flagged, not just
-      // ones still outstanding — worth knowing if this number looks higher
-      // than expected.
+      // preview list. "Open Cases" = closed conversations with a follow_up
+      // note that hasn't been marked resolved via follow_up_resolved yet
+      // (see Reports.jsx's "Mark as resolved" action) — a genuinely
+      // accurate "still needs attention" count.
       const [
         { count: clients },
         { count: todayApptsCount },
@@ -55,8 +53,12 @@ export default function AdminDashboard() {
           .gte('scheduled_at', today).lt('scheduled_at', tomorrowStr).eq('status', 'pending'),
         supabase.from('hhf_appointments').select('*', { count: 'exact', head: true })
           .eq('status', 'pending'),
+        // "Open Cases" = closed conversations with a follow_up note that
+        // hasn't been marked resolved yet — now that follow_up_resolved
+        // exists, this is a genuinely accurate "still needs attention"
+        // count, not just "was ever flagged" like before.
         supabase.from('hhf_conversations').select('*', { count: 'exact', head: true })
-          .eq('status', 'closed').not('follow_up', 'is', null).neq('follow_up', ''),
+          .eq('status', 'closed').not('follow_up', 'is', null).neq('follow_up', '').eq('follow_up_resolved', false),
         supabase.from('hhf_appointments')
           .select('*, client:client_id(full_name), staff:staff_id(full_name)')
           .gte('scheduled_at', today).lt('scheduled_at', tomorrowStr)
