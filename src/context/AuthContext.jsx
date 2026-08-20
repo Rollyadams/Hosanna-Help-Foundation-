@@ -40,6 +40,21 @@ export function AuthProvider({ children }) {
       // earlier stale-session testing took place.
       if (event === 'SIGNED_IN') {
         localStorage.setItem(LAST_ACTIVE_KEY, String(Date.now()))
+        // Audit log: nothing anywhere in the app previously wrote a login
+        // event, which is why the Audit Log's "Login" tab always showed
+        // empty regardless of how many times someone signed in — the
+        // filter and label config existed, but no write ever happened.
+        // Piggybacking on this same SIGNED_IN branch as the inactivity
+        // checkpoint reset above, since that logic already treats this
+        // event as "a real, fresh sign-in" specifically (not a token
+        // refresh or session restore).
+        if (session?.user) {
+          supabase.from('hhf_audit_logs').insert({
+            actor_id: session.user.id,
+            action: 'login',
+            target_type: 'auth',
+          }).then(({ error }) => { if (error) console.error('Login audit log failed:', error) })
+        }
       }
       setUser(session?.user ?? null)
       setProfile(null)
@@ -140,6 +155,18 @@ export function AuthProvider({ children }) {
 
     if (signingOutUserId && wasStaffOrAdmin) {
       await supabase.from('hhf_profiles').update({ online_status: 'offline' }).eq('id', signingOutUserId)
+    }
+
+    // Audit log — must happen here, before auth.signOut() revokes the
+    // session below, for the same RLS reason noted in the CAVEAT further
+    // down: once the session is gone, an insert as this user may be
+    // rejected depending on hhf_audit_logs' RLS policy.
+    if (signingOutUserId) {
+      await supabase.from('hhf_audit_logs').insert({
+        actor_id: signingOutUserId,
+        action: 'logout',
+        target_type: 'auth',
+      }).catch(e => console.error('Logout audit log failed:', e))
     }
 
     // Update local state immediately so the person isn't stuck waiting —
