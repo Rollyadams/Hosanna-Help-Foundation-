@@ -9,12 +9,23 @@ function fmtDate(ts) {
 }
 
 // A case only has a real "needs attention / resolved" state if staff
-// actually left a follow_up note when closing it — a report with no
-// follow-up isn't tracked as open or resolved, it's just a record with
-// nothing pending. Centralized here so the list, filters, and detail
-// modal can't drift out of sync on what counts as a real case.
+// actually left a follow_up note describing an action — a report with no
+// note isn't tracked as open or resolved, it's just a record with nothing
+// pending.
+//
+// The follow-up field's label/placeholder describes WHAT action is
+// needed, but staff sometimes read it as a yes/no question and type "No"
+// (or "None", "N/A", "Nil") instead of leaving it blank — which then
+// falsely counts as "needs attention" forever. Treating these common
+// negative answers the same as empty fixes existing mislabeled reports
+// without needing a database cleanup; the close-conversation form (see
+// Messaging.jsx) was also updated to make blank-if-none clearer so this
+// shouldn't keep happening for new reports.
+const NO_ACTION_PHRASES = new Set(['no', 'none', 'n/a', 'na', 'nil', 'nothing'])
 function hasFollowUp(r) {
-  return !!(r.follow_up && r.follow_up.trim())
+  const text = (r.follow_up || '').trim()
+  if (!text) return false
+  return !NO_ACTION_PHRASES.has(text.toLowerCase())
 }
 
 async function buildPersonMap(ids) {
