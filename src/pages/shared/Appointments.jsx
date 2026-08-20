@@ -515,6 +515,22 @@ export default function Appointments() {
   }
 
   // ── ACTION ────────────────────────────────────────────────
+  // Explicit map from button action -> exact audit log action string.
+  // Previously this was built as `appointment_${action}ed`, which silently
+  // produced the WRONG string for 3 of 4 cases (appointment_canceled with
+  // one L, appointment_completeed with a typo'd double e) — none of which
+  // matched the AuditLog page's ACTION_CONFIG keys, so every one of those
+  // events fell through to a fuzzy "closest appointment_* match" fallback
+  // and always displayed as "Appointment booked" regardless of what
+  // actually happened. Explicit strings here removes the whole class of
+  // bug — see the matching fix in AuditLog.jsx's ACTION_CONFIG.
+  const AUDIT_ACTION_MAP = {
+    confirm:  'appointment_confirmed',
+    cancel:   'appointment_cancelled',
+    complete: 'appointment_completed',
+    no_show:  'appointment_no_showed',
+  }
+
   async function handleAction(appt, action) {
     const statusMap = { confirm: 'confirmed', cancel: 'cancelled', complete: 'completed', no_show: 'no_show' }
     const newStatus = statusMap[action]
@@ -530,7 +546,7 @@ export default function Appointments() {
     // Audit log
     await supabase.from('hhf_audit_logs').insert({
       actor_id:    profile.id,
-      action:      `appointment_${action}ed`,
+      action:      AUDIT_ACTION_MAP[action] || `appointment_${action}`,
       target_type: 'appointment',
       target_id:   appt.id,
       details:     { previous_status: appt.status, new_status: newStatus }
