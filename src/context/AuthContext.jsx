@@ -157,16 +157,21 @@ export function AuthProvider({ children }) {
       await supabase.from('hhf_profiles').update({ online_status: 'offline' }).eq('id', signingOutUserId)
     }
 
-    // Audit log — must happen here, before auth.signOut() revokes the
-    // session below, for the same RLS reason noted in the CAVEAT further
-    // down: once the session is gone, an insert as this user may be
-    // rejected depending on hhf_audit_logs' RLS policy.
+    // Audit log — fire-and-forget, not awaited. This previously used
+    // `await ... .catch(...)`, which meant if this single insert ever
+    // stalled (slow connection, RLS check taking a moment, anything),
+    // the ENTIRE sign-out flow blocked right here — auth.signOut() and
+    // the redirect to /login never ran, so tapping "Sign out" did
+    // nothing at all. Letting the person actually leave the app must
+    // never depend on an audit write succeeding in time. It's still
+    // fired before auth.signOut() revokes the session below (same RLS
+    // timing reason as before), just not blocking on its response.
     if (signingOutUserId) {
-      await supabase.from('hhf_audit_logs').insert({
+      supabase.from('hhf_audit_logs').insert({
         actor_id: signingOutUserId,
         action: 'logout',
         target_type: 'auth',
-      }).catch(e => console.error('Logout audit log failed:', e))
+      }).then(({ error }) => { if (error) console.error('Logout audit log failed:', error) })
     }
 
     // Update local state immediately so the person isn't stuck waiting —
