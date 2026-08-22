@@ -728,7 +728,7 @@ function ChatWindow({ visitor, convoId }) {
                   // guest_client_id, never client_id. booked_by is left
                   // null for guest bookings rather than risk the same kind
                   // of foreign-key mismatch (it's nullable, so this is safe).
-                  const { error: apptError } = await supabase.from('hhf_appointments').insert({
+                  const { data: newAppt, error: apptError } = await supabase.from('hhf_appointments').insert({
                     staff_id:         staffId,
                     guest_client_id:  visitor.id,
                     scheduled_at:     scheduledAt.toISOString(),
@@ -736,7 +736,7 @@ function ChatWindow({ visitor, convoId }) {
                     service_type:     'Public Chat Follow-up',
                     notes:            bookingForm.note || null,
                     status:           'pending',
-                  })
+                  }).select('id').single()
                   if (apptError) {
                     // Don't silently claim success if the insert actually
                     // failed (e.g. an RLS policy gap) — this was the exact
@@ -745,6 +745,11 @@ function ChatWindow({ visitor, convoId }) {
                     setBookingError('Something went wrong requesting that appointment. Please try again, or send us a message directly.')
                     return
                   }
+                  // Email confirmation — fire-and-forget. Silently no-ops
+                  // in the Edge Function if this visitor never provided an
+                  // email (expected and fine — see send-appointment-email).
+                  supabase.functions.invoke('send-appointment-email', { body: { appointmentId: newAppt.id } })
+                    .catch(e => console.error('Appointment email failed:', e))
                   // Confirm in chat
                   await supabase.from('hhf_messages').insert({
                     conversation_id: convoId,
