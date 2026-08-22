@@ -494,7 +494,7 @@ export default function Appointments() {
       booked_by:        profile.id,
     }
 
-    const { error: err } = await supabase.from('hhf_appointments').insert(payload)
+    const { data: newAppt, error: err } = await supabase.from('hhf_appointments').insert(payload).select('id').single()
     if (err) {
       if (err.code === '23P01' || err.message?.includes('hhf_appointments_no_overlap')) {
         return 'That time slot was just booked by someone else. Please choose a different time.'
@@ -502,11 +502,20 @@ export default function Appointments() {
       return err.message
     }
 
+    // Email confirmation — fire-and-forget, same reasoning as the audit
+    // log call right below it: a failed or slow email send must never
+    // block the booking itself from completing for the person using this
+    // form. The Edge Function silently no-ops if the recipient has no
+    // email on file (expected for guest visitors who didn't provide one).
+    supabase.functions.invoke('send-appointment-email', { body: { appointmentId: newAppt.id } })
+      .catch(e => console.error('Appointment email failed:', e))
+
     // Audit log
     await supabase.from('hhf_audit_logs').insert({
       actor_id:    profile.id,
       action:      'appointment_created',
       target_type: 'appointment',
+      target_id:   newAppt.id,
       details:     { scheduled_at: start.toISOString(), staff_id: payload.staff_id, client_id: payload.client_id }
     }).catch(e => console.error('Audit log insert failed:', e))
 
