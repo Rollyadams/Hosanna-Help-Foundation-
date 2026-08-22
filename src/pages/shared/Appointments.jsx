@@ -193,6 +193,7 @@ function BookForm({ profile, staffList, onBook, onClose }) {
     duration_minutes: 60,
     service_type:     '',
     notes:            '',
+    guestEmail:       '', // only used when clientKind === 'guest' — see field below
   })
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -250,12 +251,31 @@ function BookForm({ profile, staffList, onBook, onClose }) {
               const selected = staffList.find(c => c.id === e.target.value)
               set('client_id', e.target.value)
               set('clientKind', selected?.kind || 'client')
+              // Prefill with whatever email is already on file for this
+              // guest (if any), but keep it editable — staff can correct
+              // or add one even if the visitor never saved a conversation.
+              set('guestEmail', selected?.kind === 'guest' ? (selected?.email || '') : '')
             }}
           >
             <option value="">Select client…</option>
             {staffList.map(c => <option key={c.id} value={c.id}>{c.label || c.full_name}</option>)}
           </select>
           <p className="text-xs text-gray-400 mt-1">Includes registered clients and public chat visitors.</p>
+          {form.clientKind === 'guest' && (
+            <div className="mt-2">
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Visitor email <span className="text-gray-400">(optional — used to send a confirmation)</span>
+              </label>
+              <input
+                type="email"
+                className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="e.g. mentioned in chat but not saved to their profile"
+                value={form.guestEmail}
+                onChange={e => set('guestEmail', e.target.value)}
+              />
+              <p className="text-xs text-gray-400 mt-1">If provided, this is saved to the visitor's profile for next time.</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -426,7 +446,7 @@ export default function Appointments() {
     }
     const [{ data: clients }, { data: guests }] = await Promise.all([
       supabase.from('hhf_profiles').select('id, full_name').eq('role', 'client').eq('status', 'active').order('full_name'),
-      supabase.from('hhf_guest_profiles').select('id, full_name').eq('app', 'hhf').order('full_name'),
+      supabase.from('hhf_guest_profiles').select('id, full_name, email').eq('app', 'hhf').order('full_name'),
     ])
     const combined = [
       ...(clients || []).map(c => ({ ...c, kind: 'client', label: c.full_name })),
@@ -502,13 +522,27 @@ export default function Appointments() {
       return err.message
     }
 
+    // Manually-entered visitor email (see form field above) — save it back
+    // to the guest's profile so it's remembered for future bookings, and
+    // ALSO pass it straight to the email function as an override, rather
+    // than relying on it to read the just-saved value back from the
+    // database. Two independent writes racing each other (this update and
+    // the function's own read) could otherwise send with a stale/missing
+    // email depending on which finishes first.
+    const guestEmailOverride = isGuestBooking ? (form.guestEmail || '').trim() : ''
+    if (guestEmailOverride) {
+      supabase.from('hhf_guest_profiles').update({ email: guestEmailOverride }).eq('id', payload.guest_client_id)
+        .then(({ error }) => { if (error) console.error('Saving guest email failed:', error) })
+    }
+
     // Email confirmation — fire-and-forget, same reasoning as the audit
     // log call right below it: a failed or slow email send must never
     // block the booking itself from completing for the person using this
-    // form. The Edge Function silently no-ops if the recipient has no
-    // email on file (expected for guest visitors who didn't provide one).
-    supabase.functions.invoke('send-appointment-email', { body: { appointmentId: newAppt.id } })
-      .catch(e => console.error('Appointment email failed:', e))
+    // form. The Edge Function silently no-ops if there's no recipient
+    // email at all (expected for guest visitors who didn't provide one).
+    supabase.functions.invoke('send-appointment-email', {
+      body: { appointmentId: newAppt.id, overrideEmail: guestEmailOverride || undefined },
+    }).catch(e => console.error('Appointment email failed:', e))
 
     // Audit log
     await supabase.from('hhf_audit_logs').insert({
