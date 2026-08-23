@@ -24,6 +24,25 @@ function fileIcon(mime = '') {
 
 const ACCESS_LABELS = { private: 'Private', staff: 'Staff only', all: 'All users' }
 
+// Guards against a specific Android Chrome quirk: when a native picker
+// (photo/camera/file) closes and hands control back to the page, it can
+// dispatch a "ghost" tap at the same screen coordinates the person last
+// touched inside the native picker UI. If that coordinate happens to land
+// on a close button underneath (X, Cancel), the modal closes for real —
+// discarding whatever file/label was just picked — even though the person
+// never actually tapped that button themselves. This tracks the moment
+// the page last regained visibility and treats any close-attempt within
+// 600ms of that as suspect, ignoring it rather than closing.
+let lastVisibleAt = 0
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') lastVisibleAt = Date.now()
+  })
+}
+function isLikelyGhostClick() {
+  return Date.now() - lastVisibleAt < 600
+}
+
 // ── ICONS ──────────────────────────────────────────────────
 const Icon = {
   Upload:   () => <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>,
@@ -52,7 +71,7 @@ function Modal({ title, onClose, children }) {
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h3 className="font-semibold text-gray-900">{title}</h3>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600">
+          <button onClick={() => { if (!isLikelyGhostClick()) onClose() }} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600">
             <Icon.X />
           </button>
         </div>
@@ -263,7 +282,7 @@ function UploadForm({ profile, onUploaded, onClose }) {
       )}
 
       <div className="flex gap-2 pt-1">
-        <button onClick={onClose} disabled={done} className="flex-1 py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 disabled:opacity-50">
+        <button onClick={() => { if (!isLikelyGhostClick()) onClose() }} disabled={done} className="flex-1 py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 disabled:opacity-50">
           Cancel
         </button>
         <button onClick={handleUpload} disabled={uploading || done || !file}
