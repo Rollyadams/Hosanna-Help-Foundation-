@@ -37,10 +37,18 @@ const Icon = {
 }
 
 // ── MODAL ──────────────────────────────────────────────────
+// No longer closes on a tap outside the modal box. Previously it did, but
+// on Android Chrome, returning from a native <input type="file"> picker
+// (camera/gallery) can fire a spurious tap on whatever's underneath it —
+// which landed on this modal's backdrop and closed it, silently discarding
+// whatever file/label the person had just picked, before Upload was ever
+// tapped. That's what looked like "the upload does nothing" — the upload
+// function was never even called. Closing now requires an explicit tap on
+// the X or a Cancel button, which also has the side benefit of not losing
+// a half-filled form (like Book Appointment) from an accidental tap.
 function Modal({ title, onClose, children }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
-      onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h3 className="font-semibold text-gray-900">{title}</h3>
