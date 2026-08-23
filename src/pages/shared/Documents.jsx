@@ -63,6 +63,7 @@ function UploadForm({ profile, onUploaded, onClose }) {
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [error, setError]       = useState('')
+  const [done, setDone]         = useState(false)
 
   function handleFile(f) {
     if (!f) return
@@ -77,60 +78,100 @@ function UploadForm({ profile, onUploaded, onClose }) {
     if (!label.trim()) return setError('Please enter a label.')
     setUploading(true); setError(''); setProgress(10)
 
-    const ext  = file.name.split('.').pop()
-    const path = `${profile.id}/${Date.now()}.${ext}`
+    // Previously this whole function had NO try/catch at all. If any step
+    // threw instead of returning a normal {error} result — which is
+    // exactly what happened elsewhere in this app with a ".catch is not a
+    // function" throw on a supabase call — the function just died
+    // mid-flight with zero visible feedback: no error message, modal
+    // stuck or silently reset, "uploading" state possibly stuck true
+    // forever. That matches "bounces back with no error and no success"
+    // exactly. Wrapping everything here guarantees SOME visible outcome
+    // no matter what goes wrong, and finally{} guarantees the button
+    // never gets stuck disabled.
+    let path = null
+    try {
+      const ext = file.name.split('.').pop()
+      path = `${profile.id}/${Date.now()}.${ext}`
 
-    // Upload to storage
-    const { error: upErr } = await supabase.storage
-      .from('hhf-documents')
-      .upload(path, file, { contentType: file.type, upsert: false })
+      // Upload to storage
+      const { error: upErr } = await supabase.storage
+        .from('hhf-documents')
+        .upload(path, file, { contentType: file.type, upsert: false })
 
-    if (upErr) { setError(upErr.message); setUploading(false); setProgress(0); return }
+      if (upErr) { setError(upErr.message); setProgress(0); return }
 
-    setProgress(70)
+      setProgress(70)
 
-    // Get public URL (synchronous — no await needed)
-    const { data: urlData } = supabase.storage.from('hhf-documents').getPublicUrl(path)
+      // Get public URL (synchronous — no await needed)
+      const { data: urlData } = supabase.storage.from('hhf-documents').getPublicUrl(path)
 
-    setProgress(85)
+      setProgress(85)
 
-    // Save record — use upsert-style insert with explicit returning
-    const { data: inserted, error: dbErr } = await supabase
-      .from('hhf_documents')
-      .insert({
-        owner_id:     profile.id,
-        uploaded_by:  profile.id,
-        label:        label.trim(),
-        file_path:    path,
-        file_url:     urlData?.publicUrl || '',
-        file_type:    file.type || 'application/octet-stream',
-        file_size:    file.size,
-        access_level: access,
-      })
-      .select()
-      .single()
+      // Save record
+      const { data: inserted, error: dbErr } = await supabase
+        .from('hhf_documents')
+        .insert({
+          owner_id:     profile.id,
+          uploaded_by:  profile.id,
+          label:        label.trim(),
+          file_path:    path,
+          file_url:     urlData?.publicUrl || '',
+          file_type:    file.type || 'application/octet-stream',
+          file_size:    file.size,
+          access_level: access,
+        })
+        .select()
+        .single()
 
-    if (dbErr) {
-      // DB failed — clean up the uploaded file
-      await supabase.storage.from('hhf-documents').remove([path]).catch(() => {})
-      setError(`DB error: ${dbErr.message}`)
-      setUploading(false)
+      if (dbErr) {
+        // DB failed — clean up the uploaded file
+        try { await supabase.storage.from('hhf-documents').remove([path]) } catch { /* best-effort cleanup */ }
+        setError(`DB error: ${dbErr.message}`)
+        setProgress(0)
+        return
+      }
+
+      setProgress(100)
+
+      // Audit log (fire and forget) — wrapped in its own async IIFE with a
+      // real try/catch rather than chained .catch(), same fix already
+      // applied in Appointments.jsx after that pattern threw at runtime.
+      ;(async () => {
+        try {
+          const { error } = await supabase.from('hhf_audit_logs').insert({
+            actor_id: profile.id, action: 'document_uploaded',
+            target_type: 'document', target_id: inserted?.id,
+            details: { label: label.trim(), access }
+          })
+          if (error) console.error('Audit log insert failed:', error)
+        } catch (e) {
+          console.error('Audit log insert failed:', e)
+        }
+      })()
+
+      // Previously this closed the modal immediately with zero
+      // confirmation — a successful upload and a silently-failed one
+      // looked identical to the person using it. Now: show an explicit
+      // success state, AWAIT the list refresh so it's guaranteed current
+      // by the time the modal closes, then close on a short delay so the
+      // "Uploaded!" state is actually seen rather than flashing for one
+      // frame.
+      setDone(true)
+      await onUploaded()
+      setTimeout(onClose, 900)
+    } catch (e) {
+      // Catches anything unexpected from either the storage upload or the
+      // DB insert above that threw instead of returning {error} — the
+      // exact failure mode that previously left this whole flow silent.
+      console.error('Document upload failed unexpectedly:', e)
+      setError(e?.message || 'Something went wrong uploading this file. Please try again.')
+      if (path) {
+        try { await supabase.storage.from('hhf-documents').remove([path]) } catch { /* best-effort cleanup */ }
+      }
       setProgress(0)
-      return
+    } finally {
+      setUploading(false)
     }
-
-    setProgress(100)
-
-    // Audit log (fire and forget)
-    supabase.from('hhf_audit_logs').insert({
-      actor_id: profile.id, action: 'document_uploaded',
-      target_type: 'document', target_id: inserted?.id,
-      details: { label: label.trim(), access }
-    }).catch(e => console.error('Audit log insert failed:', e))
-
-    setUploading(false)
-    onUploaded()
-    onClose()
   }
 
   return (
@@ -197,6 +238,16 @@ function UploadForm({ profile, onUploaded, onClose }) {
         </div>
       )}
 
+      {/* Success state — previously the modal just closed instantly on
+          success with zero visible confirmation, which is indistinguishable
+          from it silently failing. This is shown for ~900ms before the
+          modal auto-closes (see the setTimeout in handleUpload). */}
+      {done && (
+        <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-xl px-3 py-2">
+          <span className="text-base">✅</span> Uploaded successfully
+        </div>
+      )}
+
       {error && (
         <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
           <Icon.Alert />{error}
@@ -204,12 +255,12 @@ function UploadForm({ profile, onUploaded, onClose }) {
       )}
 
       <div className="flex gap-2 pt-1">
-        <button onClick={onClose} className="flex-1 py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50">
+        <button onClick={onClose} disabled={done} className="flex-1 py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 disabled:opacity-50">
           Cancel
         </button>
-        <button onClick={handleUpload} disabled={uploading || !file}
+        <button onClick={handleUpload} disabled={uploading || done || !file}
           className="flex-1 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors">
-          {uploading ? 'Uploading…' : 'Upload'}
+          {done ? 'Uploaded ✓' : uploading ? 'Uploading…' : 'Upload'}
         </button>
       </div>
     </div>
@@ -324,16 +375,21 @@ export default function Documents() {
   async function handleDelete(doc) {
     setDeleting(doc.id)
     // Remove from storage
-    await supabase.storage.from('hhf-documents').remove([doc.file_path]).catch(() => {})
+    try { await supabase.storage.from('hhf-documents').remove([doc.file_path]) } catch { /* best-effort — proceed to delete the DB record either way */ }
     // Remove record
     const { error: err } = await supabase.from('hhf_documents').delete().eq('id', doc.id)
     if (err) { setError(err.message); setDeleting(null); return }
 
-    await supabase.from('hhf_audit_logs').insert({
-      actor_id: profile.id, action: 'document_deleted',
-      target_type: 'document', target_id: doc.id,
-      details: { label: doc.label }
-    }).catch(e => console.error('Audit log insert failed:', e))
+    try {
+      const { error } = await supabase.from('hhf_audit_logs').insert({
+        actor_id: profile.id, action: 'document_deleted',
+        target_type: 'document', target_id: doc.id,
+        details: { label: doc.label }
+      })
+      if (error) console.error('Audit log insert failed:', error)
+    } catch (e) {
+      console.error('Audit log insert failed:', e)
+    }
 
     setDeleting(null)
     load()
