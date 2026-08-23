@@ -81,22 +81,53 @@ function Modal({ title, onClose, children }) {
   )
 }
 
+// Draft persistence for the upload form. sessionStorage — unlike React
+// state — survives a real page reload, which is exactly what happens when
+// Android kills this tab's process while the native photo picker is open
+// (see the investigation above the Modal component... no code fix exists
+// for the kill itself, only for what happens after). This can't recover
+// the picked FILE — a raw File object can never survive a real process
+// restart in any browser, that's a hard platform rule — but it CAN
+// restore the label and privacy choice the person already typed, and the
+// parent Documents component below auto-reopens the modal so they land
+// back in a filled-in form instead of a blank one with no explanation.
+const DRAFT_KEY = 'hhf_doc_upload_draft'
+function saveDraft(label, access) {
+  try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ label, access })) } catch { /* storage unavailable — draft recovery just won't work, not fatal */ }
+}
+function readDraft() {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+function clearDraft() {
+  try { sessionStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
+}
+
 // ── UPLOAD FORM ────────────────────────────────────────────
 function UploadForm({ profile, onUploaded, onClose }) {
-  const inputRef   = useRef()
+  const photoInputRef = useRef()
+  const docInputRef   = useRef()
+  const draft = readDraft()
   const [file, setFile]         = useState(null)
-  const [label, setLabel]       = useState('')
-  const [access, setAccess]     = useState('private')
+  const [label, setLabel]       = useState(draft?.label || '')
+  const [access, setAccess]     = useState(draft?.access || 'private')
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [error, setError]       = useState('')
   const [done, setDone]         = useState(false)
+  const [restored]              = useState(!!draft)
+
+  // Keep the draft current as the person types, so it's ready the instant
+  // before a native picker steals focus (and possibly the whole process).
+  useEffect(() => { saveDraft(label, access) }, [label, access])
 
   function handleFile(f) {
     if (!f) return
     if (f.size > 10 * 1024 * 1024) { setError('File must be under 10 MB.'); return }
     setFile(f)
-    setLabel(f.name.replace(/\.[^.]+$/, ''))
+    if (!label) setLabel(f.name.replace(/\.[^.]+$/, ''))
     setError('')
   }
 
@@ -184,6 +215,7 @@ function UploadForm({ profile, onUploaded, onClose }) {
       // "Uploaded!" state is actually seen rather than flashing for one
       // frame.
       setDone(true)
+      clearDraft()
       await onUploaded()
       setTimeout(onClose, 900)
     } catch (e) {
@@ -203,30 +235,69 @@ function UploadForm({ profile, onUploaded, onClose }) {
 
   return (
     <div className="space-y-4">
-      {/* Drop zone */}
-      <div
-        onClick={() => inputRef.current?.click()}
-        onDragOver={e => e.preventDefault()}
-        onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]) }}
-        className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${file ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'}`}
-      >
-        <input ref={inputRef} type="file" className="hidden"
-          accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.txt"
-          onChange={e => handleFile(e.target.files[0])} />
-        {file ? (
-          <div>
-            <p className="text-2xl mb-1">{fileIcon(file.type).icon}</p>
-            <p className="text-sm font-medium text-gray-900 truncate">{file.name}</p>
-            <p className="text-xs text-gray-400">{fmtSize(file.size)}</p>
+      {/* Shown when this form remounted with a restored draft — i.e. the
+          browser's tab process was killed (commonly while a native photo
+          picker was open) and reloaded from scratch. The picked FILE
+          itself can never survive that — no web app can preserve a raw
+          File object through a real process restart — but the label and
+          privacy choice were saved to sessionStorage as they typed, so
+          this at least explains what happened instead of leaving a
+          blank, unexplained form, and saves re-typing those two fields. */}
+      {restored && (
+        <div className="flex items-start gap-2 text-sm text-blue-800 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2.5">
+          <span className="text-base leading-none mt-0.5">↻</span>
+          <span>Your browser needed to refresh while the file picker was open — your label and privacy setting were kept. Please reselect your file below.</span>
+        </div>
+      )}
+
+      {/* File pickers — split into Photo vs Document rather than one
+          combined input. A combined accept list (images + documents
+          together) makes Android launch its full, heavier gallery/chooser
+          UI. Restricting to image/* for photos specifically gives Android
+          a chance to use its lighter, more memory-efficient native Photo
+          Picker instead — which may reduce (not guarantee prevention of)
+          the OS killing this tab's process while the picker is open. See
+          the investigation notes near isLikelyGhostClick above for why a
+          full prevention isn't possible from app code at all. */}
+      {file ? (
+        <div
+          onClick={() => { photoInputRef.current?.click() }}
+          className="border-2 border-dashed border-blue-400 bg-blue-50 rounded-xl p-6 text-center cursor-pointer"
+        >
+          <p className="text-2xl mb-1">{fileIcon(file.type).icon}</p>
+          <p className="text-sm font-medium text-gray-900 truncate">{file.name}</p>
+          <p className="text-xs text-gray-400">{fmtSize(file.size)} · tap to change</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-2">
+          <div
+            onClick={() => photoInputRef.current?.click()}
+            onDragOver={e => e.preventDefault()}
+            onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]) }}
+            className="border-2 border-dashed border-gray-200 rounded-xl p-4 text-center cursor-pointer hover:border-blue-300 hover:bg-gray-50 transition-colors"
+          >
+            <div className="text-gray-300 flex justify-center mb-1"><Icon.Upload /></div>
+            <p className="text-sm text-gray-600 font-medium">Choose Photo</p>
+            <p className="text-xs text-gray-400 mt-0.5">Images · Max 10 MB</p>
           </div>
-        ) : (
-          <div>
-            <div className="text-gray-300 flex justify-center mb-2"><Icon.Upload /></div>
-            <p className="text-sm text-gray-500">Tap to select file</p>
-            <p className="text-xs text-gray-400 mt-1">PDF, Word, Excel, Images · Max 10 MB</p>
+          <div
+            onClick={() => docInputRef.current?.click()}
+            onDragOver={e => e.preventDefault()}
+            onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]) }}
+            className="border-2 border-dashed border-gray-200 rounded-xl p-4 text-center cursor-pointer hover:border-blue-300 hover:bg-gray-50 transition-colors"
+          >
+            <div className="text-gray-300 flex justify-center mb-1"><Icon.Upload /></div>
+            <p className="text-sm text-gray-600 font-medium">Choose Document</p>
+            <p className="text-xs text-gray-400 mt-0.5">PDF, Word, Excel · Max 10 MB</p>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+      <input ref={photoInputRef} type="file" className="hidden"
+        accept="image/*"
+        onChange={e => handleFile(e.target.files[0])} />
+      <input ref={docInputRef} type="file" className="hidden"
+        accept=".pdf,.doc,.docx,.xls,.xlsx,.txt"
+        onChange={e => handleFile(e.target.files[0])} />
 
       {/* Label */}
       <div>
@@ -345,7 +416,7 @@ export default function Documents() {
   const [docs, setDocs]         = useState([])
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState('')
-  const [showUpload, setShowUpload] = useState(false)
+  const [showUpload, setShowUpload] = useState(() => !!readDraft())
   const [deleting, setDeleting] = useState(null)
   const [filter, setFilter]     = useState('all') // all | mine | shared
 
@@ -525,8 +596,8 @@ export default function Documents() {
 
       {/* Upload modal */}
       {showUpload && (
-        <Modal title="Upload Document" onClose={() => setShowUpload(false)}>
-          <UploadForm profile={profile} onUploaded={load} onClose={() => setShowUpload(false)} />
+        <Modal title="Upload Document" onClose={() => { clearDraft(); setShowUpload(false) }}>
+          <UploadForm profile={profile} onUploaded={load} onClose={() => { clearDraft(); setShowUpload(false) }} />
         </Modal>
       )}
     </AppShell>
