@@ -26,6 +26,19 @@ import AuditLog          from './pages/admin/AuditLog'
 import Settings          from './pages/admin/Settings'
 import Notifications     from './pages/shared/Notifications'
 
+function RootRedirect() {
+  const hostname = window.location.hostname
+
+  if (hostname === 'chat.hhfoundation.com.ng') {
+    return <Navigate to="/chat" replace />
+  }
+  if (hostname === 'admin.hhfoundation.com.ng') {
+    return <Navigate to="/login" replace />
+  }
+  // Fallback for the default Vercel URL / any other host
+  return <Navigate to="/login" replace />
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -81,8 +94,8 @@ export default function App() {
           <Route path="/chat"        element={<PublicChat />} />
           <Route path="/staff-apply" element={<StaffApply />} />
 
-          {/* Default */}
-          <Route path="/" element={<Navigate to="/login" replace />} />
+          {/* Default — route depends on which domain loaded the app */}
+          <Route path="/" element={<RootRedirect />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </BrowserRouter>
