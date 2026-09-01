@@ -103,7 +103,7 @@ export default function AppShell({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const notifPermissionAsked = useRef(false)
-  const originalTitleRef = useRef(typeof document !== 'undefined' ? document.title : 'HHF Connect')
+  const originalTitleRef = useRef(typeof document !== 'undefined' ? document.title : 'HHF CareConnect')
   const titleFlashRef = useRef(null)
   const repeatAlertRef = useRef(null)
 
@@ -354,7 +354,7 @@ export default function AppShell({ children }) {
 
         if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
           try {
-            new Notification(payload.new.title || 'HHF Connect', {
+            new Notification(payload.new.title || 'HHF CareConnect', {
               body: payload.new.body || 'You have a new notification.',
               icon: '/favicon.svg',
             })
