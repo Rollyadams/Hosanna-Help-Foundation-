@@ -20,7 +20,7 @@ export default function PendingActivation() {
         <div className="w-14 h-14 bg-gradient-to-br from-blue-800 to-emerald-600 rounded-xl flex items-center justify-center mx-auto mb-4 text-white font-serif font-bold text-xl">
           HHF
         </div>
-        <h1 className="font-serif text-lg font-semibold text-hhf-blue mb-1">Hosanna Help Foundation</h1>
+        <h1 className="font-serif text-lg font-semibold text-hhf-blue mb-1">Hossanah Help Foundation</h1>
         <p className="text-gray-400 text-xs mb-6">Changing One Story at a Time</p>
         <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4">
           <svg className="w-8 h-8 text-amber-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
