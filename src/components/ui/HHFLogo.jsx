@@ -6,7 +6,7 @@ export default function HHFLogo({ className = "h-8 w-auto" }) {
         HHF
       </div>
       <div>
-        <div className="font-serif font-semibold text-hhf-blue text-sm leading-tight">HHF Connect</div>
+        <div className="font-serif font-semibold text-hhf-blue text-sm leading-tight">HHF CareConnect</div>
         <div className="text-xs text-gray-400 leading-tight">Hossanah Help Foundation</div>
       </div>
     </div>
