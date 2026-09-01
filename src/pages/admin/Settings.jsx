@@ -310,7 +310,7 @@ export default function Settings() {
         <Section title="Platform Info" icon={<Icon.Org />}>
           <div className="space-y-3">
             {[
-              { label: 'Platform',      value: 'HHF Connect' },
+              { label: 'Platform',      value: 'HHF CareConnect' },
               { label: 'Organisation',  value: 'Hossanah Help Foundation' },
               { label: 'Website',       value: 'hhfoundation.com.ng' },
               { label: 'Built by',      value: 'Rollyadams Techworld Nigeria' },
