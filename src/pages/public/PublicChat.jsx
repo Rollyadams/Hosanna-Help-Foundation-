@@ -626,7 +626,7 @@ function ChatWindow({ visitor, convoId }) {
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         <div className="flex justify-center">
           <div className="bg-white rounded-xl px-4 py-3 text-xs text-gray-500 text-center shadow-sm max-w-xs">
-            <div className="font-semibold text-gray-700 mb-1">Welcome to HHF Connect</div>
+            <div className="font-semibold text-gray-700 mb-1">Welcome to HHF CareConnect</div>
             A member of our team will be with you shortly.
           </div>
         </div>
@@ -902,7 +902,7 @@ function ChatWindow({ visitor, convoId }) {
 
       <div className="text-center py-2 bg-white border-t border-gray-50">
         <span className="text-xs text-gray-300">Powered by </span>
-        <span className="text-xs font-semibold" style={{ color: '#1a5fa8' }}>HHF Connect</span>
+        <span className="text-xs font-semibold" style={{ color: '#1a5fa8' }}>HHF CareConnect</span>
       </div>
     </div>
   )
