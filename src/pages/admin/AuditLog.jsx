@@ -213,7 +213,7 @@ export default function AuditLog() {
         </div>
         <div>
           <p className="text-sm font-semibold text-gray-900">{loading ? '…' : total.toLocaleString()} total events</p>
-          <p className="text-xs text-gray-400">All activity on HHF Connect</p>
+          <p className="text-xs text-gray-400">All activity on HHF CareConnect</p>
         </div>
       </div>
 
