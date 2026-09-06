@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import bcrypt from 'bcryptjs'
 import { supabase } from '../../lib/supabase'
 import { assignStaffForNewConversation, notifyStaffOfConversation, escalateConversation, AWAY_MESSAGE_MINUTES } from '../../lib/roster'
 import { joinConversationPresence, leaveConversationPresence, broadcastTyping, isViewerPresent } from '../../lib/presence'
-import { localDateStr } from '../../lib/date'
 
 function timeStr(ts) {
   return new Date(ts).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })
@@ -293,12 +291,11 @@ function ChatWindow({ visitor, convoId }) {
   // Find out whether this guest already saved an account (has a password),
   // so we don't nag someone who's already set one up.
   async function checkHasAccount() {
-    const { data } = await supabase
-      .from('hhf_guest_profiles')
-      .select('password_hash')
-      .eq('id', visitorRef.current.id)
-      .maybeSingle()
-    setHasAccount(!!data?.password_hash)
+    // Server-side check — never pull password_hash into the browser.
+    const { data } = await supabase.rpc('hhf_guest_has_password', {
+      p_guest_id: visitorRef.current.id,
+    })
+    setHasAccount(!!data)
   }
 
   async function checkConvoStatus() {
@@ -565,13 +562,14 @@ function ChatWindow({ visitor, convoId }) {
         return
       }
 
-      const salt = bcrypt.genSaltSync(10)
-      const password_hash = bcrypt.hashSync(saveForm.password, salt)
-
-      const { error: updErr } = await supabase
-        .from('hhf_guest_profiles')
-        .update({ phone: saveForm.phone, email: saveForm.email || null, password_hash })
-        .eq('id', visitor.id)
+      // Password is hashed server-side (pgcrypto) inside the RPC — the raw
+      // password is sent over TLS but never hashed or stored client-side.
+      const { error: updErr } = await supabase.rpc('hhf_guest_set_password', {
+        p_guest_id: visitor.id,
+        p_phone: saveForm.phone,
+        p_email: saveForm.email || null,
+        p_password: saveForm.password,
+      })
 
       if (updErr) { setSaveErrors({ phone: updErr.message }); setSaveSubmitting(false); return }
 
@@ -626,7 +624,7 @@ function ChatWindow({ visitor, convoId }) {
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         <div className="flex justify-center">
           <div className="bg-white rounded-xl px-4 py-3 text-xs text-gray-500 text-center shadow-sm max-w-xs">
-            <div className="font-semibold text-gray-700 mb-1">Welcome to HHF CareConnect</div>
+            <div className="font-semibold text-gray-700 mb-1">Welcome to HHF Connect</div>
             A member of our team will be with you shortly.
           </div>
         </div>
@@ -692,7 +690,7 @@ function ChatWindow({ visitor, convoId }) {
           <div className="space-y-2">
             <input
               type="date"
-              min={localDateStr()}
+              min={new Date().toISOString().split('T')[0]}
               className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
               value={bookingForm.date}
               onChange={e => setBookingForm(f => ({ ...f, date: e.target.value }))}
@@ -728,7 +726,7 @@ function ChatWindow({ visitor, convoId }) {
                   // guest_client_id, never client_id. booked_by is left
                   // null for guest bookings rather than risk the same kind
                   // of foreign-key mismatch (it's nullable, so this is safe).
-                  const { data: newAppt, error: apptError } = await supabase.from('hhf_appointments').insert({
+                  const { error: apptError } = await supabase.from('hhf_appointments').insert({
                     staff_id:         staffId,
                     guest_client_id:  visitor.id,
                     scheduled_at:     scheduledAt.toISOString(),
@@ -736,7 +734,7 @@ function ChatWindow({ visitor, convoId }) {
                     service_type:     'Public Chat Follow-up',
                     notes:            bookingForm.note || null,
                     status:           'pending',
-                  }).select('id').single()
+                  })
                   if (apptError) {
                     // Don't silently claim success if the insert actually
                     // failed (e.g. an RLS policy gap) — this was the exact
@@ -745,11 +743,6 @@ function ChatWindow({ visitor, convoId }) {
                     setBookingError('Something went wrong requesting that appointment. Please try again, or send us a message directly.')
                     return
                   }
-                  // Email confirmation — fire-and-forget. Silently no-ops
-                  // in the Edge Function if this visitor never provided an
-                  // email (expected and fine — see send-appointment-email).
-                  supabase.functions.invoke('send-appointment-email', { body: { appointmentId: newAppt.id } })
-                    .catch(e => console.error('Appointment email failed:', e))
                   // Confirm in chat
                   await supabase.from('hhf_messages').insert({
                     conversation_id: convoId,
@@ -902,7 +895,7 @@ function ChatWindow({ visitor, convoId }) {
 
       <div className="text-center py-2 bg-white border-t border-gray-50">
         <span className="text-xs text-gray-300">Powered by </span>
-        <span className="text-xs font-semibold" style={{ color: '#1a5fa8' }}>HHF CareConnect</span>
+        <span className="text-xs font-semibold" style={{ color: '#1a5fa8' }}>HHF Connect</span>
       </div>
     </div>
   )
@@ -999,18 +992,18 @@ export default function PublicChat() {
 
   async function handleReturn(form, setRetError) {
     try {
-      const { data: guest } = await supabase
-        .from('hhf_guest_profiles')
-        .select('id, full_name, phone, password_hash')
-        .eq('phone', form.phone)
-        .eq('app', 'hhf')
+      // Verification happens entirely server-side inside the RPC — the
+      // password_hash column never leaves the database, and the raw
+      // password is only ever compared inside Postgres via pgcrypto.
+      const { data: guest, error: verifyErr } = await supabase
+        .rpc('hhf_guest_verify_password', {
+          p_phone: form.phone,
+          p_password: form.password,
+        })
         .maybeSingle()
 
-      if (!guest)             { setRetError('Phone number not found. Please start a new conversation.'); return }
-      if (!guest.password_hash) { setRetError('No password set. Please start a new conversation.'); return }
-
-      const valid = bcrypt.compareSync(form.password, guest.password_hash)
-      if (!valid) { setRetError('Incorrect password. Please try again.'); return }
+      if (verifyErr) { setRetError('Something went wrong. Please try again.'); return }
+      if (!guest)    { setRetError('Incorrect phone number or password.'); return }
 
       const { data: convo } = await supabase
         .from('hhf_conversations')
