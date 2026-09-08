@@ -933,7 +933,7 @@ export default function PublicChat() {
       const { data: guest, error: gErr } = await supabase
         .from('hhf_guest_profiles')
         .insert({ app: 'hhf', full_name: form.name?.trim() || 'Anonymous' })
-        .select().single()
+        .select('id, full_name, phone').single()
 
       if (gErr) throw new Error(gErr.message)
 
