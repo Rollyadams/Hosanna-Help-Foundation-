@@ -6,6 +6,7 @@ export default function Register() {
   const { signUp } = useAuth()
   const navigate   = useNavigate()
   const [form, setForm]       = useState({ fullName: '', email: '', password: '', confirm: '', role: 'client' })
+  const [agreed, setAgreed]   = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
   const [done, setDone]       = useState(false)
@@ -15,6 +16,7 @@ export default function Register() {
   async function handleSubmit(e) {
     e.preventDefault()
     if (form.password !== form.confirm) { setError('Passwords do not match'); return }
+    if (!agreed) { setError('Please agree to the Terms of Use and Privacy Policy to continue'); return }
     setLoading(true); setError('')
     const { error } = await signUp(form.email, form.password, form.fullName, form.role)
     setLoading(false)
@@ -96,6 +98,16 @@ export default function Register() {
             <label className="block text-xs font-semibold text-gray-600 mb-1.5">Confirm password</label>
             <input name="confirm" type="password" value={form.confirm} onChange={update} className="input-field" placeholder="Repeat password" required />
           </div>
+          <label className="flex items-start gap-2 text-xs text-gray-500">
+            <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)}
+              className="mt-0.5 w-3.5 h-3.5 flex-shrink-0" />
+            <span>
+              I agree to the{' '}
+              <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-hhf-blue underline">Terms of Use</a>
+              {' '}and{' '}
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-hhf-blue underline">Privacy Policy</a>.
+            </span>
+          </label>
           <button type="submit" disabled={loading} className="btn-primary w-full py-2.5 flex items-center justify-center gap-2">
             {loading && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
             {loading ? 'Creating account...' : 'Create Account'}
