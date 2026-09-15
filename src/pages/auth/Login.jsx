@@ -72,6 +72,11 @@ export default function Login() {
         <p className="text-center text-sm text-gray-500 mt-5">
           Need access? <Link to="/register" className="text-hhf-blue font-semibold hover:underline">Request account</Link>
         </p>
+        <p className="text-center text-[11px] text-gray-400 mt-3">
+          <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-600">Terms of Use</a>
+          {' '}·{' '}
+          <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-600">Privacy Policy</a>
+        </p>
       </div>
     </div>
   )
