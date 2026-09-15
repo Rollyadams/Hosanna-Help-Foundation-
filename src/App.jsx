@@ -12,6 +12,7 @@ import AdminDashboard   from './pages/admin/Dashboard'
 import StaffDashboard   from './pages/staff/Dashboard'
 import StaffClients     from './pages/staff/Clients'
 import ClientDashboard  from './pages/client/Dashboard'
+import ClientProfile    from './pages/client/Profile'
 import ComingSoon       from './pages/shared/ComingSoon'
 import Messaging        from './pages/shared/Messaging'
 import PublicChat       from './pages/public/PublicChat'
@@ -25,6 +26,9 @@ import Documents         from './pages/shared/Documents'
 import AuditLog          from './pages/admin/AuditLog'
 import Settings          from './pages/admin/Settings'
 import Notifications     from './pages/shared/Notifications'
+import TermsOfUse        from './pages/legal/TermsOfUse'
+import PrivacyPolicy     from './pages/legal/PrivacyPolicy'
+import SafeguardingPolicy from './pages/legal/SafeguardingPolicy'
 
 function RootRedirect() {
   const hostname = window.location.hostname
@@ -77,6 +81,7 @@ export default function App() {
             <Route path="/staff/availability"     element={<Roster />} />
             <Route path="/staff/notifications"    element={<Notifications />} />
             <Route path="/staff/profile"          element={<ComingSoon title="My Profile" />} />
+            <Route path="/staff/safeguarding"     element={<SafeguardingPolicy />} />
           </Route>
 
           {/* Client routes */}
@@ -87,12 +92,14 @@ export default function App() {
             <Route path="/client/messages"            element={<Messaging />} />
             <Route path="/client/documents"           element={<Documents />} />
             <Route path="/client/notifications"       element={<Notifications />} />
-            <Route path="/client/profile"             element={<ComingSoon title="My Profile" />} />
+            <Route path="/client/profile"             element={<ClientProfile />} />
           </Route>
 
           {/* Public chat — no auth required */}
           <Route path="/chat"        element={<PublicChat />} />
           <Route path="/staff-apply" element={<StaffApply />} />
+          <Route path="/terms"       element={<TermsOfUse />} />
+          <Route path="/privacy"     element={<PrivacyPolicy />} />
 
           {/* Default — route depends on which domain loaded the app */}
           <Route path="/" element={<RootRedirect />} />
