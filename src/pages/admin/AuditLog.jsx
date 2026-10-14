@@ -34,6 +34,9 @@ const ACTION_CONFIG = {
   conversation_reassigned:{ label: 'Chat reassigned',        color: 'bg-orange-50 text-orange-700', dot: 'bg-orange-500', icon: '🔁' },
   conversation_closed:    { label: 'Conversation closed',    color: 'bg-gray-100 text-gray-600',  dot: 'bg-gray-400',   icon: '✔️' },
   message_sent:           { label: 'Message sent',           color: 'bg-purple-50 text-purple-700', dot: 'bg-purple-500', icon: '💬' },
+  // Feedback
+  feedback_submitted:     { label: 'Feedback submitted',     color: 'bg-amber-50 text-amber-700', dot: 'bg-amber-500',  icon: '⭐' },
+  feedback_reviewed:      { label: 'Feedback reviewed',      color: 'bg-blue-50 text-blue-700',   dot: 'bg-blue-500',   icon: '📝' },
   // Users
   user_updated:           { label: 'User updated',           color: 'bg-amber-50 text-amber-700', dot: 'bg-amber-500',  icon: '👤' },
   user_activated:         { label: 'User activated',         color: 'bg-green-50 text-green-700', dot: 'bg-green-500',  icon: '✅' },
