@@ -26,6 +26,7 @@ import Documents         from './pages/shared/Documents'
 import AuditLog          from './pages/admin/AuditLog'
 import Settings          from './pages/admin/Settings'
 import Notifications     from './pages/shared/Notifications'
+import Feedback          from './pages/shared/Feedback'
 import TermsOfUse        from './pages/legal/TermsOfUse'
 import PrivacyPolicy     from './pages/legal/PrivacyPolicy'
 import SafeguardingPolicy from './pages/legal/SafeguardingPolicy'
@@ -68,6 +69,7 @@ export default function App() {
             <Route path="/admin/audit"            element={<AuditLog />} />
             <Route path="/admin/settings"         element={<Settings />} />
             <Route path="/admin/notifications"    element={<Notifications />} />
+            <Route path="/admin/feedback"         element={<Feedback />} />
             <Route path="/admin/profile"          element={<ComingSoon title="My Profile" />} />
           </Route>
 
@@ -80,6 +82,7 @@ export default function App() {
             <Route path="/staff/documents"        element={<Documents />} />
             <Route path="/staff/availability"     element={<Roster />} />
             <Route path="/staff/notifications"    element={<Notifications />} />
+            <Route path="/staff/feedback"         element={<Feedback />} />
             <Route path="/staff/profile"          element={<ComingSoon title="My Profile" />} />
             <Route path="/staff/safeguarding"     element={<SafeguardingPolicy />} />
           </Route>
@@ -108,4 +111,4 @@ export default function App() {
       </BrowserRouter>
     </AuthProvider>
   )
-} 
+}
