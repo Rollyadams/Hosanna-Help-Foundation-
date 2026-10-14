@@ -25,6 +25,8 @@ const TYPE_CONFIG = {
   new_message:           { icon: '💬', color: 'bg-purple-50', label: 'New Message'            },
   document_shared:       { icon: '📄', color: 'bg-indigo-50', label: 'Document Shared'        },
   account_activated:     { icon: '🎉', color: 'bg-amber-50',  label: 'Account Activated'      },
+  feedback_new:          { icon: '⭐', color: 'bg-amber-50',  label: 'New Feedback'           },
+  feedback_update:       { icon: '💬', color: 'bg-blue-50',   label: 'Feedback Reply'         },
   system:                { icon: '📣', color: 'bg-gray-50',   label: 'System'                 },
 }
 
